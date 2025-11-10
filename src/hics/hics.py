@@ -3,6 +3,7 @@ hics: Hierarchical Coordinate System Module containing HCS class which stores po
 orientation.
 """
 
+from functools import cache
 from typing import Any, Optional, Union
 
 import numpy as np
@@ -34,16 +35,19 @@ class HCSOrigin:
     def __init__(self, data: list | np.ndarray | Quantity | xr.DataArray) -> None:
         if isinstance(data, (list, np.ndarray, Quantity)):
             if isinstance(data, Quantity):
-                self._original_unit = data.units
+                self.original_units = data.units
                 basedata = data.to_base_units()
-                self._base_units = basedata.units
+                self.base_units = basedata.units
                 data = basedata.magnitude
+            elif isinstance(data[0], Quantity):
+                self.original_units = data[0].units
+                self.base_units = data[0].to_base_units().units
+                basedata = [d.to_base_units().magnitude for d in data]
+                data = np.asarray(basedata)
             else:
                 data = np.asarray(data)
-                self._original_unit = ureg.dimensionless
-                self._base_units = ureg.dimensionless
-
-            logger.info(f"Checking origin shape {data.shape}.")
+                self.original_units = ureg.dimensionless
+                self.base_units = ureg.dimensionless
 
             if len(_POSITION_COORDS) in data.shape:
                 # Make dims
@@ -56,13 +60,13 @@ class HCSOrigin:
 
         elif isinstance(data, xr.DataArray):
             if hasattr(data.data, "units"):
-                self._original_unit = data.data.units
+                self.original_units = data.data.units
                 basedata = data.data.to_base_units()
-                self._base_units = basedata.units
+                self.base_units = basedata.units
                 data.data = basedata.magnitude
             else:
-                self._original_unit = ureg.dimensionless
-                self._base_units = ureg.dimensionless
+                self.original_units = ureg.dimensionless
+                self.base_units = ureg.dimensionless
 
         else:
             raise TypeError(f"Unsupported input type: {type(data)}")
@@ -77,9 +81,28 @@ class HCSOrigin:
     @property
     def data(self) -> xr.DataArray:
         """Returns the internal data with the original unit reapplied."""
-        _view = self._basemag.copy()
-        _view.data = (_view.data * self._base_units).to(self._original_unit)
-        return _view
+        return self.apply_units(self._basemag.copy())
+
+    def interp(self, **kwargs) -> "HCSOrigin":
+        """Interpolate basedata."""
+        newdata = self.apply_units(self._basemag.interp(**kwargs))
+        return HCSOrigin(newdata)
+
+    def apply_units(self, magdata: xr.DataArray) -> xr.DataArray:
+        """Applys original_units to magnitude data assuming same base_units.
+
+        Parameters
+        ----------
+        magdata : xr.DataArray
+            Magnitude data
+
+        Returns:
+        -------
+        xr.DataArray
+            Unit full data
+        """
+        magdata.data = (magdata.data * self.base_units).to(self.original_units)
+        return magdata
 
     def testcoords(self, other: Union["HCSOrigin", "HCSRotation"]) -> bool:
         """Test non-positional coordinates with another HCSOrigin."""
@@ -123,7 +146,9 @@ class HCSRotation:
         # Handle Rotation object or list of them
         if isinstance(data, Rotation):
             quat = data.as_quat()
-            data = xr.DataArray(quat, dims=[_QUATERNION_DIM], coords=_QUATERNION_COORD_DICT)
+            dims = [f"dim{i}" for i in range(len(quat.shape))]
+            dims[quat.shape.index(len(_QUATERNION_COORDS))] = _QUATERNION_DIM
+            data = xr.DataArray(quat, dims=dims, coords=_QUATERNION_COORD_DICT)
 
         elif isinstance(data, (list, np.ndarray)) and isinstance(data[0], Rotation):
             quats = np.array([r.as_quat() for r in np.array(data).ravel()]).reshape(
@@ -135,7 +160,6 @@ class HCSRotation:
         elif isinstance(data, xr.DataArray) and _QUATERNION_DIM in data.dims:
             pass
         elif isinstance(data, xr.DataArray) and isinstance(data.data.ravel()[0], Rotation):
-            logger.info("Converting Rotations to quaternions")
             datar = data.data.ravel()
             quats = np.array([r.as_quat() for r in datar]).reshape(
                 list(data.shape) + [len(_QUATERNION_COORDS)]
@@ -148,7 +172,10 @@ class HCSRotation:
         else:
             raise TypeError(f"Unsupported input type: {type(data)}")
 
+        # Make sure last dim is the quaternion
+        data = data.transpose(*[d for d in data.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
         self._quat = data
+        self._slerp = None
 
     @property
     def basemag(self) -> xr.DataArray:
@@ -161,6 +188,21 @@ class HCSRotation:
         pass
 
     def apply(self, origindata: HCSOrigin | xr.DataArray, inverse: bool = False) -> xr.DataArray:
+        """
+        Apply rotation to origin data which can be and HCSOrigin or xr.DataArray.
+
+        Parameters
+        ----------
+        origindata : HCSOrigin | xr.DataArray
+            Data to apply rotation to
+        inverse : bool, optional
+            Wheter to invert the rotation
+
+        Returns:
+        -------
+        xr.DataArray
+            Rotated data.
+        """
         # Align the data arrays on shared dimensions
         if isinstance(origindata, HCSOrigin):
             origindata = origindata.basemag
@@ -179,8 +221,7 @@ class HCSRotation:
         # Align dimensions and flatten
         q = quat_da.transpose(*[d for d in quat_da.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
         v = vector_da.transpose(*[d for d in vector_da.dims if d != _POSITION_DIM], _POSITION_DIM)
-        logger.debug(f"Rot q: {q}")
-        logger.debug(f"Rot v: {v}")
+
         flat_q = q.data.reshape(-1, len(_QUATERNION_COORDS))
         flat_v = v.data.reshape(-1, len(_POSITION_COORDS))
 
@@ -191,17 +232,60 @@ class HCSRotation:
         rotated = rotated.reshape(v.shape)
         return xr.DataArray(rotated, dims=vector_da.dims, coords=vector_da.coords)
 
-    # def inverse(self) -> "HCSRotation":
-    #     rot = self.as_rotation().inv()
-    #     inv_quats = rot.as_quat().reshape(self.quat_da.shape)
-    #     return HCSRotation(
-    #         xr.DataArray(inv_quats, dims=self.quat_da.dims, coords=self.quat_da.coords)
-    #     )
+    @property
+    def slerp(self) -> Slerp:
+        """Slerp works for interpolating rotatations for only a single dimension."""
+        if self._slerp is None:
+            if self.basemag.dims != ("time", _QUATERNION_DIM):
+                msg = "Slerp only support for 'time' dim."
+                raise NotImplementedError(msg)
+            # Create single Rotation object with the multiple rotations from the time dimension
+            multi_rotation = self.as_multirotation()
+            # Converting date time into second timestamp
+            ts = (self.basemag.time - self.basemag.time[0]) / np.timedelta64(1, "ns")
+            # Generate slerp and convert time to float (ns)
+            self._slerp = Slerp(ts, multi_rotation)
+
+        return self._slerp
+
+    def interp(self, time) -> "HCSRotation":
+        """Interpolate self using slerp, only works for time."""
+        # Interpolate
+        tdelta = (time - time[0]) / np.timedelta64(1, "ns")
+        new_rot_quats = self.slerp(tdelta).as_quat()
+
+        return HCSRotation(
+            xr.DataArray(
+                new_rot_quats,
+                dims=("time", _QUATERNION_DIM),
+                coords={**dict(time=time), **_QUATERNION_COORD_DICT},
+            )
+        )
+
+    def inverse(self) -> "HCSRotation":
+        """Return inverse rotation as HCSRotation object."""
+        rot = self.as_multirotation().inv()
+        inv_quats = rot.as_quat().reshape(self.basemag.shape)
+        return HCSRotation(
+            xr.DataArray(inv_quats, dims=self.basemag.dims, coords=self.basemag.coords)
+        )
+
+    def as_multirotation(self) -> Rotation:
+        """
+        Returns self as a flattened Rotation object.
+
+        Returns:
+        -------
+        Rotation
+            Flattened rotation object.
+        """
+        return Rotation.from_quat(self.basemag.data.reshape(-1, len(_QUATERNION_COORDS)))
 
     def __mul__(self, other: "HCSRotation") -> "HCSRotation":
         # Align and flatten
         q1, q2 = xr.align(self.basemag, other.basemag, join="outer")
-
+        q1 = q1.transpose(*[d for d in q1.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
+        q2 = q2.transpose(*[d for d in q2.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
         r1 = Rotation.from_quat(q1.data.reshape(-1, len(_QUATERNION_COORDS)))
         r2 = Rotation.from_quat(q2.data.reshape(-1, len(_QUATERNION_COORDS)))
 
@@ -211,9 +295,9 @@ class HCSRotation:
         return HCSRotation(xr.DataArray(composed_quats, dims=q1.dims, coords=q1.coords))
 
     def __repr__(self) -> str:
-        if self._data is None:
+        if self._quat is None:
             return "HCSRotation(None)"
-        return f"HCSRotation with coordinates {self._original_unit}:\n{self.unitdata!r}"
+        return f"HCSRotation with coordinates {self.basemag.coords}"
 
     def __getattr__(self, name: str) -> Any:
         if self._quat is not None and hasattr(self._quat, name):
@@ -252,9 +336,7 @@ class HCS:
 
         # Store origin and rotation in data objects which will validate inputs
         self.origin = origin
-        logger.debug(f"original units: {self.origin._original_unit}")
-        logger.debug(f"orgin data: {self.origin.data}")
-        logger.debug(f"orgin base data: {self.origin.basemag}")
+
         # Validate DataArray
         if (
             _POSITION_DIM not in self.origin.basemag.dims
@@ -265,10 +347,8 @@ class HCS:
 
         # Default rotation
         if rotation is None:
-            logger.debug(self.origin.basemag.sel(position="x"))
             tmp = self.origin.basemag.sel(position="x")
             tmp = tmp.drop_vars("position")
-            logger.debug(tmp)
             if tmp.dims != ():
                 # Can't use full like because it copies the object
                 rotation = xr.DataArray(
@@ -280,8 +360,6 @@ class HCS:
                 rotation = Rotation.identity()
 
         self.rotation = rotation
-        logger.debug(f"orgin data: {self.rotation.data}")
-        logger.debug(f"orgin base data: {self.rotation.basemag}")
         # Validate rotation match
         if not self.origin.testcoords(self.rotation):
             msg = "Origin and rotation must have identical coordinates. Coordinate mismatch found."
@@ -290,10 +368,17 @@ class HCS:
             )
         self.clear_cache()
 
+    @classmethod
+    def from_crs(cls, *args, **kwargs) -> "HCS":
+        """Alternate constructor using geospatial Coordinate Reference System."""
+        raise ImportError
+
     def clear_cache(self) -> None:
         """Clear cache by initializing private variables."""
-        self._slerp = None
         self.__global_position = None
+        self._reference_tree = None
+        self._origin_tree = None
+        self._rotation_tree = None
         # self._llh = None
         # self._hagl = None
 
@@ -348,8 +433,8 @@ class HCS:
         """Determine position in global coordinates as HCSOrigin object."""
         if self.__global_position is None:
             # Get origins and rotations
-            origins = self.get_origins()
-            rots = self.get_rotations()
+            origins = self.origin_tree
+            rots = self.rotation_tree
 
             # Starting position
             pos = origins[-1]
@@ -357,7 +442,8 @@ class HCS:
             # Loop through by inverting the rotation and applying and add to the origin
             for o, r in zip(origins[:-1][::-1], rots[:-1][::-1], strict=False):
                 pos = r.apply(pos, inverse=True) + o
-            pos.data = pos.data * self.origin._base_units
+            pos = self.origin.apply_units(pos)
+
             self.__global_position = HCSOrigin(pos)
 
         return self.__global_position
@@ -368,47 +454,53 @@ class HCS:
         return self._global_position.data
 
     @property
-    def slerp(self) -> Slerp:
-        """Slerp works for interpolating rotatations for only a single dimension."""
-        if self._slerp is None:
-            if isinstance(self.rotation, xr.DataArray):
-                if self.rotation.dims != ("time",):
-                    msg = "Slerp only support for 'time' dim."
-                    raise NotImplementedError(msg)
-                # Create single Rotation object with the multiple rotations from the time dimesion
-                multi_rotation = Rotation.concatenate(list(self.rotation.values))
-                # Converting date time into second timestamp
-                ts = (self.rotation.time - self.rotation.time[0]) / np.timedelta64(1, "ns")
-                # Generate slerp and convert time to float (ns)
-                self._slerp = Slerp(ts, multi_rotation)
-            else:
-                # Return empty function
-                self._slerp = lambda x: self.rotation
-        return self._slerp
-
-    def get_references(self):
+    def reference_tree(self) -> list:
         """Get hierarchical list of references."""
-        if self.reference is not None and isinstance(self.reference, HCS):
-            refs = [self] + self.reference.get_references()
-            return refs
-        refs = [self]
-        return refs
+        if self._reference_tree is None:
+            if self.reference is not None and isinstance(self.reference, HCS):
+                refs = [self] + self.reference.reference_tree
+                self._reference_tree = refs
+            else:
+                self._reference_tree = [self]
+        return self._reference_tree
 
-    def get_origins(self):
+    @property
+    def origin_tree(self) -> list:
         """Get hierarchical list of origins."""
-        if self.reference is not None and isinstance(self.reference, HCS):
-            origins = self.reference.get_origins() + [self.origin]
-            return origins
-        origins = [self.origin]
-        return origins
+        if self._origin_tree is None:
+            if self.reference is not None and isinstance(self.reference, HCS):
+                origins = self.reference.origin_tree + [self.origin]
+                self._origin_tree = origins
+            else:
+                self._origin_tree = [self.origin]
+        return self._origin_tree
 
-    def get_rotations(self):
+    @property
+    def rotation_tree(self) -> list:
         """Get hierarchical list of Rotations."""
-        if self.reference is not None and isinstance(self.reference, HCS):
-            rots = self.reference.get_rotations() + [self.rotation]
-            return rots
-        rots = [self.rotation]
-        return rots
+        if self._rotation_tree is None:
+            if self.reference is not None and isinstance(self.reference, HCS):
+                rots = self.reference.rotation_tree + [self.rotation]
+                self._rotation_tree = rots
+            else:
+                self._rotation_tree = [self.rotation]
+        return self._rotation_tree
+
+    def interp(self, time: xr.DataArray) -> "HCS":
+        """
+        Interpolates and returns new HCS object. Only works for time dimension.
+
+        Parameters
+        ----------
+        times : xr.DataArray
+        """
+        # Update positions
+        neworigin = self.origin.interp(time=time)
+
+        # Reset self.rotation
+        newrotation = self.rotation.interp(time=time)
+
+        return HCS(neworigin, newrotation)
 
     def relative_position(self, other_hcs: Union["HCS", xr.DataArray]):
         """Determine position of other_hcs in self HCS."""
@@ -421,13 +513,40 @@ class HCS:
         r_pos = oc - self._global_position.basemag
 
         # Note: Need to reverse the order of the rotations and convert to DataArrays if needed
-        rots = self.get_rotations()[::-1]
+        rots = self.rotation_tree[::-1]
 
         rot_prod = rots[0]
         for rot in rots[1:]:
             rot_prod *= rot
+        pos = rot_prod.apply(r_pos)
+        pos = self.origin.apply_units(pos)
+        return pos
 
-        return rot_prod.apply(r_pos)
+    def get_relative_rotation(self, request_cs: "HCS") -> xr.DataArray | Rotation:
+        """
+        Get the rotations from request_cs back to the global and then from global back to self.
+
+        Parameters
+        ----------
+        request_cs : CS
+            Requested coordinate system
+        """
+        if request_cs == self:
+            return Rotation.identity()
+
+        # Get rotations from request_cs to global (reverse and invert)
+        req_to_global = [r.inverse() for r in request_cs.rotation_tree[::-1]]
+
+        # Get rotations from global to self
+        global_to_self = self.rotation_tree
+
+        # Compose all rotations
+        rot_chain = req_to_global + global_to_self
+        composed = rot_chain[0]
+        for r in rot_chain[1:]:
+            composed = composed * r
+
+        return composed
 
     def find_common_cs(self, other_hcs: "HCS") -> "HCS":
         """
@@ -439,8 +558,8 @@ class HCS:
         other_hcs : HCS
             Other coordinate system for determining common coordinate system
         """
-        self_refs = self.get_references()
-        other_refs = other_hcs.get_references()
+        self_refs = self.reference_tree
+        other_refs = other_hcs.reference_tree
 
         # Loop through self and other references to find a common reference
         common = None

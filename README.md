@@ -1,3 +1,3 @@
-# hics: Hierarchical Coordinate System
+# hics: Hierarchical Coordinate Systems
 
 Python package for handling hierarchical coordinate systems.

@@ -20,9 +20,9 @@ def kw2da(**kwargs) -> dict:
         # Dimensional coordinate data will have quantities removed, convert to base units
         if not isinstance(v, xr.DataArray):
             if isinstance(v, Quantity):
-                v = v.to_base_units()
+                v = v.to_base_units()  # noqa: PLW2901
             if v.shape == ():
-                v = [v]
+                v = [v]  # noqa: PLW2901
             out[k] = DataArray(v, dims=(k,), coords={k: v})
         else:
             v.data = v.data.to_base_units()
@@ -33,15 +33,15 @@ def kw2da(**kwargs) -> dict:
 
 class Singleton:
     """
-    Singleton class
-    See: https://stackoverflow.com/questions/6760685/creating-a-singleton-in-python
+    Singleton class.
+    See: https://stackoverflow.com/questions/6760685/creating-a-singleton-in-python.
     """
 
     _instances = {}
 
-    def __call__(cls, *args, **kwargs):
+    def __call__(cls, *args, **kwargs):  # noqa: D102
         if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+            cls._instances[cls] = super().__call__(*args, **kwargs)
         else:
             cls._instances[cls].__init__(*args, **kwargs)
         return cls._instances[cls]
