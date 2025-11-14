@@ -12,6 +12,9 @@ import xarray as xr
 from scipy.spatial.transform import Rotation
 
 from hics import HCS, ureg
+from hics.datatypes import _POSITION_COORD_DICT, _POSITION_COORDS, _POSITION_DIM
+from hics.geo.dem import DEM
+from hics.geo.downloader import DEM_CATALOG
 
 DIR = Path(__file__).parent
 TEST_DATA = DIR / "testdata"
@@ -54,3 +57,17 @@ def test_compound_xr_regression():
     res = cs1.global_position
     res.data = res.data.to_base_units().magnitude
     xr.testing.assert_allclose(res, truth)
+
+
+def test_fromcrs_boulder():
+    truth = xr.DataArray(
+        [-1288677.40909461, -4720140.18699071, 4080316.82439268] * ureg.meter,
+        dims=[_POSITION_DIM],
+        coords=_POSITION_COORD_DICT,
+    )
+    # Ensure correct DEM
+    DEM.geo_asset = DEM_CATALOG.USGS30
+    cs_boulder = HCS.from_crs(
+        (40.015 * ureg.degree, -105.270556 * ureg.degree, 20 * ureg.m), hagl=True
+    )
+    xr.testing.assert_allclose(cs_boulder.global_position, truth)

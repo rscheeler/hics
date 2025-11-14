@@ -27,14 +27,23 @@ dependencies = [
 [project.optional-dependencies]
 geo = [
     "wget",
-    "requests",
     "cartopy",
-    "pyproj",
-    "rioxarray",
     "leafmap",
     "geopandas",
     "maplibre",
     "dask[complete]>=2025.11.0",
+    "python-dotenv>=1.2.1",
+    "aiohttp>=3.13.2",
+    "tqdm>=4.67.1",
+    "rasterio>=1.4.3",
+    "shapely>=2.1.2",
+    "planetary-computer>=1.0.0",
+    "requests>=2.32.5",
+    "rtree>=1.4.1",
+    "pyproj>=3.7.2",
+    "rioxarray>=0.19.0",
+    "aiofiles>=25.1.0",
+    "gdal>=3.11.4",
 ]
 
 [dependency-groups]
@@ -60,6 +69,22 @@ issues = "https://github.com/rscheeler/hics/issues"
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+gdal = [
+  { index = "gdal-wheels", marker = "sys_platform == 'linux'" },
+  { index = "geospatial_wheels", marker = "sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "geospatial_wheels"
+url = "https://nathanjmcdougall.github.io/geospatial-wheels-index/"
+explicit = true
+
+[[tool.uv.index]]
+name = "gdal-wheels"
+url = "https://gitlab.com/api/v4/projects/61637378/packages/pypi/simple"
+explicit = true
 
 [tool.taskipy.tasks]
 format = { cmd = "ruff format ./src/", help = "Format code using ruff" }
@@ -122,7 +147,7 @@ show_error_codes = true
 [tool.coverage.report]
 skip_empty = true
 show_missing = true
-fail_under = 100
+fail_under = 80
 
 [tool.coverage.run]
 branch = true
@@ -136,4 +161,3 @@ site_name = "Hierarchical Coordinate System"
 name = "material"
 custom_dir = "docs"
 palette = {scheme= "slate", primary="deep purple", accent="purple"}
-

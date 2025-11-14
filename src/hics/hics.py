@@ -511,15 +511,17 @@ class HCS:
 
         # Relative position
         r_pos = oc - self._global_position.basemag
-
-        # Note: Need to reverse the order of the rotations and convert to DataArrays if needed
+        # Note: Need to reverse the order of the rotations
         rots = self.rotation_tree[::-1]
-
+        # Create rotation product
         rot_prod = rots[0]
         for rot in rots[1:]:
             rot_prod *= rot
+        # Apply rotation to the relative position
         pos = rot_prod.apply(r_pos)
+        # Add units back
         pos = self.origin.apply_units(pos)
+
         return pos
 
     def get_relative_rotation(self, request_cs: "HCS") -> xr.DataArray | Rotation:
