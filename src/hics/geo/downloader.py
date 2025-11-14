@@ -392,6 +392,7 @@ def check_local_coverage(aoi_bbox: BoundingBox, source: GeoAsset) -> bool:
     # Query the spatial index
     # This returns paths and dates for ALL intersecting tiles
     intersecting_metadata = GEOTIFF_INDEX.query(aoi_bbox)
+
     filtered_metadata = [
         meta
         for meta in intersecting_metadata
@@ -513,6 +514,7 @@ async def _download_all(urls_dests: dict) -> None:
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
         tasks = []
         for url, destination in urls_dests.items():
+            logger.debug(f"Downloading to {destination.resolve()}")
             tasks.append(_download_file(session, url, destination))
 
         # Use asyncio.gather() to run all tasks concurrently and wait for all to complete.
@@ -559,7 +561,7 @@ def get_geospatial_data(
     results = initial_local_paths.copy()
     # Check local data covers bbox
     is_covered = check_local_coverage(bbox, geo_asset)
-    logger.debug(f"local {local_only}, covered {is_covered}")
+
     if not is_covered:
         local_only = False
 
@@ -642,7 +644,7 @@ def get_geospatial_data(
             # Destination path for the newest remote item
             date_stamp = str(remote_date).zfill(8)
             destination = (
-                DEM_SETTINGS.DEM_FOLDER
+                GEOTIFF_INDEX.cache_dir
                 / f"{collection_name_prefix}-{tile_name}-{actual_gsd}m-{date_stamp}.tif"
             )
             # Get the STAC asset URL
@@ -717,4 +719,4 @@ def get_geospatial_data(
 
 
 # Initialize the spatial index manager
-GEOTIFF_INDEX = GeoTIFFIndex(Path("geospatial_cache"))
+GEOTIFF_INDEX = GeoTIFFIndex(DEM_SETTINGS.DEM_FOLDER)
