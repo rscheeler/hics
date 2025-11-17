@@ -230,7 +230,7 @@ class HCSRotation:
 
         # Reshape back
         rotated = rotated.reshape(v.shape)
-        return xr.DataArray(rotated, dims=vector_da.dims, coords=vector_da.coords)
+        return xr.DataArray(rotated, dims=v.dims, coords=v.coords)
 
     @property
     def slerp(self) -> Slerp:
@@ -297,7 +297,7 @@ class HCSRotation:
     def __repr__(self) -> str:
         if self._quat is None:
             return "HCSRotation(None)"
-        return f"HCSRotation with coordinates {self.basemag.coords}"
+        return f"HCSRotation with coordinates\n{self.basemag!r}"
 
     def __getattr__(self, name: str) -> Any:
         if self._quat is not None and hasattr(self._quat, name):

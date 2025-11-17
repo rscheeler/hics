@@ -1,9 +1,4 @@
-"""
-test_hics
-----------------------------------
-
-Tests for `hics` module.
-"""
+"""Top-level tests for hics module."""
 
 import numpy as np
 import pandas as pd
@@ -11,7 +6,7 @@ import pytest
 import xarray as xr
 from scipy.spatial.transform import Rotation
 
-from hics import HCS, ureg
+from hics import GLOBAL_CS, HCS, ureg
 
 
 def test_tuple():
@@ -186,3 +181,42 @@ def test_relative_rotation():
     xr.testing.assert_equal(
         local_ant.get_relative_rotation(tower).basemag, local_ant.rotation.basemag
     )
+
+
+def test_relative_mismatch():
+    nsamples = 1000
+    speed = 100.0
+    duration = 1
+    h = 1000
+    # Default movement to y
+    end_pos = speed * duration
+    ypos = np.linspace(0, end_pos, nsamples)
+    zpos = np.full_like(ypos, h)
+    xpos = np.zeros_like(ypos)
+
+    start = pd.Timestamp("2025-11-17 00:00:00")
+    end = start + pd.Timedelta(days=0, hours=0, minutes=0, seconds=1)
+
+    ts = np.linspace(start.value, end.value, nsamples)
+    isotime = np.asarray(pd.to_datetime(ts))
+    pos = np.array([xpos, ypos, zpos]).T * ureg.m
+    pos_xr = xr.DataArray(
+        pos,
+        dims=("time", "position"),
+        coords=dict(
+            time=isotime,
+            position=["x", "y", "z"],
+        ),
+    )
+
+    # Create coordinate system
+    cs = HCS(
+        pos_xr,
+        reference=GLOBAL_CS,
+    )
+    target_pos = (800, 0, 5) * ureg.m
+    target = HCS(target_pos, reference=GLOBAL_CS)
+
+    rel_pos = cs.relative_position(target)
+    truth_rel_pos = target.origin.data.values - pos_xr.values
+    np.testing.assert_equal(truth_rel_pos, rel_pos.values)

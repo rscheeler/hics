@@ -1,9 +1,4 @@
-"""
-test_regression
-----------------------------------
-
-Regression Tests for `hics` module.
-"""
+"""Regression Tests for hics module."""
 
 from pathlib import Path
 

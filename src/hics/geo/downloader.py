@@ -2,33 +2,22 @@
 
 import asyncio
 import json
-import re
 
 # import os
-from dataclasses import asdict, dataclass, field
-from enum import Enum
+from dataclasses import asdict, dataclass
 from operator import itemgetter
 from pathlib import Path
-from types import SimpleNamespace
-from typing import TypedDict, Union
-from urllib.request import urlretrieve
+from typing import TypedDict
 
 import aiofiles
 import aiohttp
-import numpy as np
-import pandas as pd
 import planetary_computer
 import pystac_client
 import rasterio
-import requests
-import rioxarray
-import xarray as xr
 from loguru import logger
-from pint import Quantity
 from rtree import index
 from tqdm import tqdm
 
-from .. import ureg
 from ..utils import Singleton
 from .config import DEM_SETTINGS
 
@@ -51,7 +40,7 @@ class BoundingBox:
         self.min_lon = min(self.min_lon, self.max_lon)
         self.max_lon = max(self.min_lon, self.max_lon)
 
-    def __init__(self, points: list) -> None:
+    def __init__(self, points: list[tuple[float, float]]) -> None:
         """
         Initializes a BoundingBox from a list of (lat, lon) points.
 
