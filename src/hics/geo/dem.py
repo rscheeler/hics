@@ -31,6 +31,14 @@ for i in NLCDLEG["Value"].values:
     IDXNLCDCOLOR[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["rgbint"].item()
 
 
+def nlcdcat2clutterh(v):
+    return IDXCLUTTERH[int(v)]
+
+
+def nlcdcat2color(v):
+    return IDXNLCDCOLOR[int(v)]
+
+
 # Utility function to generate a VRT file
 def _generate_vrt(vrt_path: Path, file_paths: list[Path]):
     """

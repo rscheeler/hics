@@ -218,5 +218,54 @@ def test_relative_mismatch():
     target = HCS(target_pos, reference=GLOBAL_CS)
 
     rel_pos = cs.relative_position(target)
-    truth_rel_pos = target.origin.data.values - pos_xr.values
-    np.testing.assert_equal(truth_rel_pos, rel_pos.values)
+    truth_rel_pos = target.origin - pos_xr
+    truth_rel_pos.data = truth_rel_pos.data * ureg.m
+    truth_rel_pos = truth_rel_pos.transpose(*rel_pos.dims)
+    xr.testing.assert_equal(truth_rel_pos, rel_pos)
+
+
+def test_relative_multi_mismatch():
+    nsamples = 1000
+    speed = 100.0
+    duration = 1
+    h = 1000
+    # Default movement to y
+    end_pos = speed * duration
+    ypos = np.linspace(0, end_pos, nsamples)
+    zpos = np.full_like(ypos, h)
+    xpos = np.zeros_like(ypos)
+
+    start = pd.Timestamp("2025-11-17 00:00:00")
+    end = start + pd.Timedelta(days=0, hours=0, minutes=0, seconds=1)
+
+    ts = np.linspace(start.value, end.value, nsamples)
+    isotime = np.asarray(pd.to_datetime(ts))
+    pos = np.array([xpos, ypos, zpos]).T * ureg.m
+    pos_xr = xr.DataArray(
+        pos,
+        dims=("time", "position"),
+        coords=dict(
+            time=isotime,
+            position=["x", "y", "z"],
+        ),
+    )
+
+    # Create coordinate system
+    cs = HCS(
+        pos_xr,
+        reference=GLOBAL_CS,
+    )
+    txpos = np.linspace(500, 1300, 21)
+    xrpos = np.array([[txp, 0, 0] for txp in txpos]) * ureg.m
+    xrpos = xr.DataArray(
+        xrpos,
+        dims=("target", "position"),
+        coords=(dict(target=range(xrpos.shape[0]), position=["x", "y", "z"])),
+    )
+    targets = HCS(xrpos, reference=GLOBAL_CS)
+
+    rel_pos = cs.relative_position(targets)
+    truth_rel_pos = xrpos - pos_xr
+    truth_rel_pos.data = truth_rel_pos.data * ureg.m
+    truth_rel_pos = truth_rel_pos.transpose(*rel_pos.dims)
+    xr.testing.assert_equal(truth_rel_pos, rel_pos)

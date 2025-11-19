@@ -3,6 +3,7 @@ hics: Hierarchical Coordinate System Module containing HCS class which stores po
 orientation.
 """
 
+from copy import deepcopy
 from functools import cache
 from typing import Any, Optional, Union
 
@@ -21,6 +22,7 @@ from .datatypes import (
     _QUATERNION_COORDS,
     _QUATERNION_DIM,
 )
+from .geo.transforms import geocent2llh
 from .utils import vector_norm
 
 
@@ -217,6 +219,10 @@ class HCSRotation:
             # Broadcast position to match rotation metadata dims
             logger.info("Broadcasting position")
             vector_da = vector_da.broadcast_like(quat_da.isel(**{_QUATERNION_DIM: 0}).squeeze())
+        if not position_dims.issubset(rotation_dims):
+            # Broadcast position to match rotation metadata dims
+            logger.info("Broadcasting rotation")
+            quat_da = quat_da.broadcast_like(vector_da.isel(**{_POSITION_DIM: 0}).squeeze())
 
         # Align dimensions and flatten
         q = quat_da.transpose(*[d for d in quat_da.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
@@ -379,7 +385,7 @@ class HCS:
         self._reference_tree = None
         self._origin_tree = None
         self._rotation_tree = None
-        # self._llh = None
+        self._llh = None
         # self._hagl = None
 
     @property
@@ -485,6 +491,21 @@ class HCS:
             else:
                 self._rotation_tree = [self.rotation]
         return self._rotation_tree
+
+    @property
+    def llh(self):
+        """Return position in latitude, longitude, and height."""
+        if self._llh is None:
+            gp = self.global_position
+            llh = geocent2llh.transform(
+                gp.sel(position="x"), gp.sel(position="y"), gp.sel(position="z")
+            )
+            # Make sure to drop position dimension
+            _llh = []
+            for l in llh:
+                _llh.append(l.drop_vars("position"))
+            self._llh = _llh
+        return deepcopy(self._llh)
 
     def interp(self, time: xr.DataArray) -> "HCS":
         """
