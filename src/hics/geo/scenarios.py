@@ -8,6 +8,7 @@ from scipy.spatial.transform import Rotation
 
 from .. import ureg
 from ..hics import GLOBAL_CS, HCS
+from .dem import DEM
 from .transforms import GEOD, llh2geocent
 
 
@@ -23,18 +24,20 @@ def interp_llpnts2hcs(
     z: int = 1,
 ) -> HCS:
     """
-    Takes in a list of (lat, lon) pairs and a constant height which can either be specified as height above ground
-    (alt_above_ground=True) or altitude above mean sea level (alt_above_ground=False). The time for each point is
-    determined from the speed and start time. The point list can be repeated by increasing the number of loops, and
-    turns can be banked if desired. Finally, if new_n_pnts is specified, the HCS object is used to
-    interpolate to a finer sampling. The HCS object is returned.
+    Takes in a list of (lat, lon) pairs and a constant height which can either be specified as
+    height above ground (alt_above_ground=True) or altitude above mean sea level
+    (alt_above_ground=False). The time for each point is determined from the speed and start time.
+    The point list can be repeated by increasing the number of loops, and turns can be banked if
+    desired. Finally, if new_n_pnts is specified, the HCS object is used to interpolate to a finer
+    sampling. The HCS object is returned.
 
     Parameters
     ----------
     pnts: list
         List of (lat, lon) tuples of points
     h : Quantity
-        Constant height - which is either height above ground or mean sea level depending on the alt_above_ground flag
+        Constant height - which is either height above ground or mean sea level depending on the
+        alt_above_ground flag
     speed : Quantity
         The speed of the points
     start_time : np.datetime64
@@ -57,6 +60,9 @@ def interp_llpnts2hcs(
     rots = []
     pos = []
     loop_start = start_time
+    # Load DEM if needed
+    if hagl:
+        DEM.load(pnts)
     for ii in range(loops):
         if ii > 0:
             jj = 1
@@ -228,44 +234,52 @@ def racetrack_latlon(
     # Total Length
     l_tot = length * 2 + np.pi * width
 
+    # Convert to magnitudes
+    center_lat_deg = center_lat.to("degree").magnitude
+    center_lon_deg = center_lon.to("degree").magnitude
+    length_m = length.to("m").magnitude
+    width_m = width.to("m").magnitude
+    angle_deg = angle.to("degree").magnitude
+    angle_rad = angle.to("radians").magnitude
+
     # Semicircle centers
     start_circle = GEOD.fwd(
-        center_lon.to("degree"),
-        center_lat.to("degree"),
-        np.rad2deg(np.angle(np.exp(1j * (angle.to("radians").magnitude - np.pi)))),
-        length.to("m") / 2,
+        center_lon_deg,
+        center_lat_deg,
+        np.rad2deg(np.angle(np.exp(1j * (angle_rad - np.pi)))),
+        length_m / 2,
     )
     end_circle = GEOD.fwd(
-        center_lon.to("degree"),
-        center_lat.to("degree"),
-        angle.to("degree"),
-        length.to("m") / 2,
+        center_lon_deg,
+        center_lat_deg,
+        angle_deg,
+        length_m / 2,
     )
     # Get corners
     lr = GEOD.fwd(
         start_circle[0],
         start_circle[1],
-        np.rad2deg(np.angle(np.exp(1j * (angle.to("radians").magnitude - np.pi / 2)))),
-        width.to("m") / 2,
+        np.rad2deg(np.angle(np.exp(1j * (angle_rad - np.pi / 2)))),
+        width_m / 2,
     )
     ll = GEOD.fwd(
         start_circle[0],
         start_circle[1],
-        np.rad2deg(np.angle(np.exp(1j * (angle.to("radians").magnitude + np.pi / 2)))),
-        width.to("m") / 2,
+        np.rad2deg(np.angle(np.exp(1j * (angle_rad + np.pi / 2)))),
+        width_m / 2,
     )
 
     ur = GEOD.fwd(
         end_circle[0],
         end_circle[1],
-        np.rad2deg(np.angle(np.exp(1j * (angle.to("radians").magnitude - np.pi / 2)))),
-        width.to("m") / 2,
+        np.rad2deg(np.angle(np.exp(1j * (angle_rad - np.pi / 2)))),
+        width.to("m").magnitude / 2,
     )
     ul = GEOD.fwd(
         end_circle[0],
         end_circle[1],
-        np.rad2deg(np.angle(np.exp(1j * (angle.to("radians").magnitude + np.pi / 2)))),
-        width.to("m") / 2,
+        np.rad2deg(np.angle(np.exp(1j * (angle_rad + np.pi / 2)))),
+        width.to("m").magnitude / 2,
     )
 
     # Start points
@@ -278,7 +292,7 @@ def racetrack_latlon(
             lat,
             lon,
         )
-        for lon, lat in zip(first_leg.lons, first_leg.lats)
+        for lon, lat in zip(first_leg.lons, first_leg.lats, strict=False)
     ]
 
     # Go around first semi-circle
@@ -291,7 +305,7 @@ def racetrack_latlon(
             end_circle[0],
             end_circle[1],
             ang,
-            width.to("m") / 2,
+            width_m / 2,
         )
         pnts.append((pnt[1], pnt[0]))
 
@@ -302,7 +316,7 @@ def racetrack_latlon(
             lat,
             lon,
         )
-        for lon, lat in zip(return_leg.lons, return_leg.lats)
+        for lon, lat in zip(return_leg.lons, return_leg.lats, strict=False)
     ]
 
     # End semi-circle
@@ -313,7 +327,7 @@ def racetrack_latlon(
             start_circle[0],
             start_circle[1],
             ang,
-            width.to("m") / 2,
+            width_m / 2,
         )
         pnts.append((pnt[1], pnt[0]))
 
