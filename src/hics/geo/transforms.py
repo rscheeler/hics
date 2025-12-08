@@ -68,14 +68,10 @@ class XRCRSTransformer:
         """Returns the base unit of source units."""
         return tuple([(1 * u).to_base_units().units for u in self.target_units])
 
-    def transform(self, *args, to_da: bool = False, hagl: bool = False):
-        """Perform transform on source data to target data."""
-        # Check length
-        if len(args) != len(self.source_dims):
-            raise ValueError("Arg number doesn't match source dims")
-
+    def sourceunitchecker(self, *args):
+        """Check units of arguments and convert to base."""
         # Ensure correct units if no units specified it is assumed that it is in the pint base unit
-        args = list(deepcopy(args))
+        basemag = list(deepcopy(args))
         for i, (a, unit, bunit) in enumerate(zip(args, self.source_units, self.source_base_units)):
             if isinstance(a, xr.DataArray):
                 if isinstance(a.data, Quantity):
@@ -88,32 +84,43 @@ class XRCRSTransformer:
                 adc = a.to(unit).magnitude
             else:
                 adc = (a * bunit).to(unit).magnitude
-            args[i] = adc
+            basemag[i] = adc
+        return basemag
+
+    def transform(self, *args, to_da: bool = False, hagl: bool = False, outunits: bool = False):
+        """Perform transform on source data to target data."""
+        # Check length
+        if len(args) != len(self.source_dims):
+            raise ValueError("Arg number doesn't match source dims")
+
+        # Ensure correct units if no units specified it is assumed that it is in the pint base unit
+        basemags = self.sourceunitchecker(*args)
 
         # Add ground height if correct source crs and flag specified
         if self.transformer.source_crs.to_epsg() == 4979 and hagl:
-            args[2] = hagl2amsl(*args)
+            basemags[2] = hagl2amsl(np.deg2rad(basemags[0]), np.deg2rad(basemags[1]), basemags[2])
 
         # Perform transform
-        transdata = self.transformer.transform(*args)
+        transdata = self.transformer.transform(*basemags)
         transdata = list(transdata)
 
         # Convert to DataArray if input was
-        if isinstance(args[0], xr.DataArray):
+        if isinstance(basemags[0], xr.DataArray):
             for i, t in enumerate(transdata):
-                transdata[i] = xr.DataArray(t, dims=args[0].dims, coords=args[0].coords)
+                transdata[i] = xr.DataArray(t, dims=basemags[0].dims, coords=basemags[0].coords)
 
         # Remove ground height if correct target crs and flag specified
         if self.transformer.target_crs.to_epsg() == 4979 and hagl:
             transdata[2] = amsl2hagl(*transdata)
 
         # Apply units on output
-        for i, (t, unit) in enumerate(zip(transdata, self.target_units)):
-            if isinstance(t, xr.DataArray):
-                t.data *= unit
-            else:
-                t *= unit
-            transdata[i] = t
+        if outunits:
+            for i, (t, unit) in enumerate(zip(transdata, self.target_units)):
+                if isinstance(t, xr.DataArray):
+                    t.data *= unit
+                else:
+                    t *= unit
+                transdata[i] = t
 
         # Convert to a single DataArray
         if to_da:
@@ -147,145 +154,30 @@ class XRCRSTransformer:
         return transdata
 
 
-class XRCRSTransformer2:
-    """
-    Wrapper to handle units and DataArrays.
-
-    Note: Use EPSG:4979 for lat,lon,alt coordinate system as it contains the name and units for
-    altitude.
-
-    USE EPSG:4978 for geocentric coordinate system
-
-    References:
-    -----------
-    https://en.wikipedia.org/wiki/World_Geodetic_System
-    https://en.wikipedia.org/wiki/EPSG_Geodetic_Parameter_Dataset
-    """
-
-    def __init__(self, crs_from: Any, crs_to: Any, **kwargs) -> None:
-        self.transformer = Transformer.from_crs(crs_from, crs_to, **kwargs)
-
-    @property
-    def source_dims(self) -> tuple:
-        """Return source dimensions."""
-        return tuple([axis.abbrev.lower() for axis in self.transformer.source_crs.axis_info])
-
-    @property
-    def source_units(self) -> tuple:
-        """Units for the corresponding source dimensions."""
-        return tuple([axis.unit_name.lower() for axis in self.transformer.source_crs.axis_info])
-
-    @property
-    def target_dims(self) -> tuple:
-        """Return target dimensions."""
-        return tuple([axis.abbrev.lower() for axis in self.transformer.target_crs.axis_info])
-
-    @property
-    def target_units(self) -> tuple:
-        """Units for the corresponding target dimensions."""
-        return tuple([axis.unit_name.lower() for axis in self.transformer.target_crs.axis_info])
-
-    def transform(self, *args, to_da: bool = False, hagl: bool = False):
-        """Perform transform on source data to target data."""
-        # Check length
-        if len(args) != len(self.source_dims):
-            raise ValueError("Arg number doesn't match source dims")
-
-        # Ensure correct units if no units specified it is assumed that it is in the pint base unit
-        # args = list(deepcopy(args))
-        # for i, (a, unit, bunit) in enumerate(zip(args, self.source_units, self.source_base_units)):
-        #     if isinstance(a, xr.DataArray):
-        #         if isinstance(a.data, Quantity):
-        #             adc = xr.DataArray(a.data.to(unit).magnitude, dims=a.dims, coords=a.coords)
-        #         else:
-        #             adc = xr.DataArray(
-        #                 (a.data * bunit).to(unit).magnitude, dims=a.dims, coords=a.coords
-        #             )
-        #     elif isinstance(a, Quantity):
-        #         adc = a.to(unit).magnitude
-        #     else:
-        #         adc = (a * bunit).to(unit).magnitude
-        #     args[i] = adc
-
-        # Add ground height if correct source crs and flag specified
-        if self.transformer.source_crs.to_epsg() == 4979 and hagl:
-            args[2] = hagl2amsl(*args)
-
-        # Perform transform
-        logger.debug(f"Transform args {args}")
-        transdata = self.transformer.transform(*args)
-        transdata = list(transdata)
-
-        # Convert to DataArray if input was
-        if isinstance(args[0], xr.DataArray):
-            for i, t in enumerate(transdata):
-                transdata[i] = xr.DataArray(t, dims=args[0].dims, coords=args[0].coords)
-
-        # Remove ground height if correct target crs and flag specified
-        if self.transformer.target_crs.to_epsg() == 4979 and hagl:
-            transdata[2] = amsl2hagl(*transdata)
-
-        # # Apply units on output
-        # for i, (t, unit) in enumerate(zip(transdata, self.target_units)):
-        #     if isinstance(t, xr.DataArray):
-        #         t.data *= unit
-        #     else:
-        #         t *= unit
-        #     transdata[i] = t
-
-        # # Convert to a single DataArray
-        if to_da:
-            dims = [
-                "position",
-            ]
-            coords = dict(position=list(self.target_dims))
-
-            # # Take magnitudes depending on data type
-            # if isinstance(transdata[0], Quantity):
-            #     tlist = [t.magnitude for t in transdata]
-
-            # elif isinstance(transdata[0], xr.DataArray):
-            #     if isinstance(transdata[0].data, Quantity):
-            #         tlist = [t.data.magnitude for t in transdata]
-            #     else:
-            #         tlist = [t.data for t in transdata]
-
-            #     dims = dims + list(transdata[0].dims)
-            #     coords = {**coords, **transdata[0].coords}
-            # else:
-            #     tlist = transdata
-
-            transdata = xr.DataArray(transdata, dims=dims, coords=coords)
-
-        #     # Add back in units if all dims the same
-        #     if all_same:
-        #         transdata.data = transdata.data * self.target_units[0]
-
-        return transdata
-
-
 def hagl2amsl(*coords):
-    """Convert height above ground level (HAGL) to height above mean sea level (AMSL)."""
-    ll = kw2da(lat=coords[0] * ureg.degree, lon=coords[1] * ureg.degree)
+    """
+    Convert height above ground level (HAGL) to height above mean sea level (AMSL).
+    Coords are lat:radian, lon:radian, hagl:meter
+    """
+    ll = kw2da(lat=coords[0], lon=coords[1])
+
     gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
-    if isinstance(coords[0], np.ndarray) or isinstance(coords[0], xr.DataArray):
-        if coords[0].shape == ():
-            gndlevel = gndlevel.values.squeeze()
-    else:
-        gndlevel = gndlevel.data.item()
+
+    if coords[0].shape == ():
+        gndlevel = gndlevel.values.squeeze()
     return coords[2] + gndlevel
 
 
 def amsl2hagl(*coords):
-    """Convert height above mean sea level (AMSL) to height above ground level (HAGL)."""
-    ll = kw2da(lat=coords[0] * ureg.degree, lon=coords[1] * ureg.degree)
+    """Convert height above mean sea level (AMSL) to height above ground level (HAGL).
+    Coords are lat:radian, lon:radian, amsl:meter
+    """
+    ll = kw2da(lat=coords[0], lon=coords[1])
     gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
 
-    if isinstance(coords[0], np.ndarray) or isinstance(coords[0], xr.DataArray):
-        if coords[0].shape == ():
-            gndlevel = gndlevel.values.squeeze()
-    else:
-        gndlevel = gndlevel.data.item()
+    if coords[0].shape == ():
+        gndlevel = gndlevel.values.squeeze()
+
     return coords[2] - gndlevel
 
 
@@ -305,7 +197,9 @@ def geo_mid(lon0, lat0, lon1, lat1):
     lat:float
     lon:float
     """
-    invint = GEOD.inv_intermediate(lon0, lat0, lon1, lat1, initial_idx=0, terminus_idx=0, npts=3)
+    invint = GEOD.inv_intermediate(
+        lon0, lat0, lon1, lat1, initial_idx=0, terminus_idx=0, npts=3, return_back_azimuth=False
+    )
     lat = invint.lats[1]
     lon = invint.lons[1]
     return lat, lon

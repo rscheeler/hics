@@ -86,7 +86,7 @@ def interp_llpnts2hcs(
         pnt_ecef = llh2geocent.transform(
             pnts[jj][0] * ureg.degree, pnts[jj][1] * ureg.degree, h, hagl=hagl
         )
-        pnt_ecef = [e.magnitude for e in pnt_ecef]
+
         pos += [pnt_ecef]
 
         bank_rots = dict()
@@ -95,7 +95,6 @@ def interp_llpnts2hcs(
             pnt_ecef = llh2geocent.transform(
                 pnt[0] * ureg.degree, pnt[1] * ureg.degree, h, hagl=hagl
             )
-            pnt_ecef = [e.magnitude for e in pnt_ecef]
 
             # Point x- in direction of movement
             ux = np.array(pnt_ecef) - np.array(pos[-1])
@@ -104,7 +103,7 @@ def interp_llpnts2hcs(
             un = llh2geocent.transform(
                 pnt[0] * ureg.degree, pnt[1] * ureg.degree, h + (z * 0.001) * ureg.m, hagl=hagl
             )
-            un = np.array([e.magnitude for e in un]) - pnt_ecef
+            un = np.array(un) - pnt_ecef
             ux /= np.linalg.norm(np.array(ux))
             un /= np.linalg.norm(np.array(un))
             uy = np.cross(un, ux)

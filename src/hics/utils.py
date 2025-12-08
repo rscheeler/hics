@@ -21,11 +21,13 @@ def kw2da(**kwargs) -> dict:
         if not isinstance(v, xr.DataArray):
             if isinstance(v, Quantity):
                 v = v.to_base_units()  # noqa: PLW2901
-            if v.shape == ():
+            if not isinstance(v, np.ndarray) or v.shape == ():
                 v = [v]  # noqa: PLW2901
             out[k] = DataArray(v, dims=(k,), coords={k: v})
-        else:
+        elif isinstance(v.data, Quantity):
             v.data = v.data.to_base_units()
+            out[k] = v
+        else:
             out[k] = v
 
     return out

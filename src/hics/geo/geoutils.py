@@ -1,5 +1,7 @@
+import dask.array as da
 import numpy as np
 import xarray as xr
+from loguru import logger
 
 from .. import ureg
 from ..hics import HCS
@@ -54,6 +56,11 @@ def get_surface_profile(tx_cs: HCS, rx_cs: HCS):
     tx = list(tx_cs.llh) + [tx_cs.hagl]
     # Other is then the receiver
     rx = list(rx_cs.llh) + [rx_cs.hagl]
+    # Convert to radians
+    tx[0] = np.deg2rad(tx[0])
+    tx[1] = np.deg2rad(tx[1])
+    rx[0] = np.deg2rad(rx[0])
+    rx[1] = np.deg2rad(rx[1])
 
     # Confirm data array sizes and broadcast accordingly
     if tx[0].size == 1 and rx[0].size != 1:
@@ -102,18 +109,23 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
     clutter_nlcds = []
     for i, (*line_data, txamsl, txagl, rxamsl, rxagl) in enumerate(
         zip(
-            *[l.data.to("radian").magnitude.ravel() for l in line],
-            *[a.data.to("m").magnitude.ravel() for a in alts],
+            *line,
+            *alts,
         )
     ):
         # Geographic distance
         distance_m = GEOD.inv(*line_data, radians=True)[-1]
         distance_km = distance_m / 1e3
-
-        # Interpolate along line to get sampling points and add one every other time to make sure data doesn't concat
+        # Interpolate along line to get sampling points and add one every other time to make sure
+        # data doesn't concat
         num_samples = determine_num_samples(distance_m) + int(np.mod(i, 2))
         geod_inv = GEOD.inv_intermediate(
-            *line_data, npts=num_samples, initial_idx=0, terminus_idx=0, radians=True
+            *line_data,
+            npts=num_samples,
+            initial_idx=0,
+            terminus_idx=0,
+            radians=True,
+            return_back_azimuth=False,
         )
 
         # Generate DataArrays for interpolation
@@ -132,10 +144,12 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
         # Sample elevation profile by using DataArray interpolate
         surface_profile = DEM.interp(lat=lats, lon=lons)
         clutter_profile, clutter_nlcd = DEM.interp_clutter(lat=lats, lon=lons)
-
+        surface_profile = compute_if_dask(surface_profile)
+        clutter_profile = compute_if_dask(clutter_profile)
+        clutter_nlcd = compute_if_dask(clutter_nlcd)
         # Add units
-        surface_profile.data = surface_profile.data * ureg.m
-        clutter_profile.data = clutter_profile.data * ureg.m + surface_profile.data
+        surface_profile.data = surface_profile.data
+        clutter_profile.data = clutter_profile.data + surface_profile.data
 
         # Add units for distance
         dist = surface_profile.distance
@@ -192,3 +206,16 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
             clutter_nlcd=clutter_nlcd,
         )
     )
+
+
+def compute_if_dask(x):
+    """Computes a dask array/quantity, otherwise returns the input."""
+    # Check if the object itself is a pint Quantity with dask data
+    if hasattr(x, "data") and isinstance(x.data, da.Array):
+        return x.compute()
+    # Check if the object is a raw dask array
+    elif isinstance(x, da.Array):
+        return x.compute()
+    else:
+        # It's a numpy array, a pint Quantity with numpy data, etc.
+        return x

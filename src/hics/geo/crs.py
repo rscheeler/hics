@@ -49,8 +49,8 @@ def from_crs(
     # Get HAGL to AMSL to ensure unit vectors correctly oriented
     if epsg == "EPSG:4979" and hagl:
         hamsl = hagl2amsl(
-            coords[0].to("degree").magnitude,
-            coords[1].to("degree").magnitude,
+            coords[0].to("radian").magnitude,
+            coords[1].to("radian").magnitude,
             coords[2].to("m").magnitude,
         )
         coords[-1] = hamsl * ureg.m
@@ -85,6 +85,9 @@ def from_crs(
     # Create normal vector
     un = un - pnt
     ux = ux - pnt
+    # Remove units
+    un.data = un.data.magnitude
+    ux.data = ux.data.magnitude
     un /= vector_norm(un, "position")
     ux /= vector_norm(ux, "position")
 

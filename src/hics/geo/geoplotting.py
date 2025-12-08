@@ -12,6 +12,7 @@ import numpy as np
 import xarray as xr
 from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
 from leafmap import maplibregl as leaflibre
+from loguru import logger
 from matplotlib import animation
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import PathPatch
@@ -157,12 +158,13 @@ def view_latlon(
     if extent is None:
         extent = np.array(
             [
-                lon.data.min().item().to("degree").magnitude - extra_extents_deg[0],
-                lon.data.max().item().to("degree").magnitude + extra_extents_deg[0],
-                lat.data.min().item().to("degree").magnitude - extra_extents_deg[1],
-                lat.data.max().item().to("degree").magnitude + extra_extents_deg[1],
+                lon.data.min().item() - extra_extents_deg[0],
+                lon.data.max().item() + extra_extents_deg[0],
+                lat.data.min().item() - extra_extents_deg[1],
+                lat.data.max().item() + extra_extents_deg[1],
             ]
         )
+
     ax.set_extent(extent)  # set extents
     ax.set_xticks(
         np.linspace(extent[0], extent[1], 5), crs=ccrs.PlateCarree()

@@ -4,13 +4,12 @@ orientation.
 """
 
 from copy import deepcopy
-from functools import cache
 from typing import Any, Optional, Union
 
 import numpy as np
 import xarray as xr
 from loguru import logger
-from pint import Quantity, Unit
+from pint import Quantity
 from scipy.spatial.transform import Rotation, Slerp
 
 from . import ureg
@@ -22,7 +21,8 @@ from .datatypes import (
     _QUATERNION_COORDS,
     _QUATERNION_DIM,
 )
-from .geo.transforms import geocent2llh
+from .geo import HAS_GEO_DEPS
+from .geo.transforms import amsl2hagl, geocent2llh
 from .utils import vector_norm
 
 
@@ -386,7 +386,7 @@ class HCS:
         self._origin_tree = None
         self._rotation_tree = None
         self._llh = None
-        # self._hagl = None
+        self._hagl = None
 
     @property
     def origin(self) -> HCSOrigin:
@@ -445,9 +445,14 @@ class HCS:
             # Starting position
             pos = origins[-1]
 
-            # Loop through by inverting the rotation and applying and add to the origin
-            for o, r in zip(origins[:-1][::-1], rots[:-1][::-1], strict=False):
-                pos = r.apply(pos, inverse=True) + o
+            # If no hierarchy need to return data properly
+            if len(origins[:-1][::-1]) == 0:
+                if isinstance(pos, HCSOrigin):
+                    pos = pos.basemag
+            else:
+                # Loop through by inverting the rotation and applying and add to the origin
+                for o, r in zip(origins[:-1][::-1], rots[:-1][::-1], strict=False):
+                    pos = r.apply(pos, inverse=True) + o
             pos = self.origin.apply_units(pos)
 
             self.__global_position = HCSOrigin(pos)
@@ -495,7 +500,7 @@ class HCS:
     @property
     def llh(self):
         """Return position in latitude, longitude, and height."""
-        if self._llh is None:
+        if self._llh is None and HAS_GEO_DEPS:
             gp = self.global_position
             llh = geocent2llh.transform(
                 gp.sel(position="x"), gp.sel(position="y"), gp.sel(position="z")
@@ -506,6 +511,31 @@ class HCS:
                 _llh.append(l.drop_vars("position"))
             self._llh = _llh
         return deepcopy(self._llh)
+
+    @property
+    def hagl(self):
+        """Return height above ground level (HAGL)."""
+        if self._hagl is None and HAS_GEO_DEPS:
+            # Get llh
+            lat, lon, h = self.llh
+            h_orig = deepcopy(h)
+
+            # Get hagl
+            hagl = amsl2hagl(np.deg2rad(lat), np.deg2rad(lon), h)
+
+            # # Apply units on output
+            # if isinstance(hagl, xr.DataArray):
+            #     hagl.data *= ureg.meter
+            # else:
+            #     hagl *= ureg.meter
+
+            # Convert to DataArray if needed
+            if isinstance(h_orig, xr.DataArray):
+                hagl = xr.DataArray(hagl, dims=h_orig.dims, coords=h_orig.coords, name="HAGL")
+
+            self._hagl = hagl
+
+        return self._hagl
 
     def interp(self, time: xr.DataArray) -> "HCS":
         """
