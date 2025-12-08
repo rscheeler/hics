@@ -133,9 +133,11 @@ class _DEM(Singleton):
         self._geotiffs = get_geospatial_data(self.geo_asset, points, local_only=self.local_only)
         if self.geotiffs is not None:
             logger.info(f"Loading geotiffs: {self.geotiffs}")
+            chunks_dict = {"x": 1024, "y": 1024}
+
             # Merge GeoTIFFS in memory
             if len(self.geotiffs) == 1:
-                data = open_rasterio(self.geotiffs[0], chunks="auto")
+                data = open_rasterio(self.geotiffs[0], chunks=chunks_dict)
             else:
                 try:
                     from osgeo import gdal
@@ -148,11 +150,11 @@ class _DEM(Singleton):
                     _generate_vrt(vrt_file, self.geotiffs)
 
                     # Open the VRT file for lazy reading
-                    data = open_rasterio(vrt_file, masked=True, chunks="auto")
+                    data = open_rasterio(vrt_file, masked=True, chunks=chunks_dict)
                 except ImportError:
                     logger.info("Merging geotiffs...")
                     # Open each file
-                    data_arrays = [open_rasterio(f, chunks="auto") for f in self.geotiffs]
+                    data_arrays = [open_rasterio(f, chunks=chunks_dict) for f in self.geotiffs]
                     # Merge
                     data = merge_arrays(data_arrays)
 
