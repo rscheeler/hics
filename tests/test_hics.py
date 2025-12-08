@@ -12,21 +12,23 @@ from hics import GLOBAL_CS, HCS, ureg
 def test_tuple():
     tup = (2, 0, 0) * ureg.meter
     cs = HCS(tup)
-    np.testing.assert_equal(cs.origin, np.array(tup))
+    np.testing.assert_equal(cs.origin.values, np.array(tup.magnitude))
 
 
 def test_translation() -> None:
     origins = np.array([[2, 1, 0], [3, -7, 4]])
     cs0 = HCS(origins[0, :] * ureg.meter)
     cs1 = HCS(origins[1, :] * ureg.meter, reference=cs0)
-    np.testing.assert_equal(cs1.global_position, origins.sum(axis=0))
+    np.testing.assert_equal(cs1.global_position.data.magnitude, origins.sum(axis=0))
 
 
 def test_relative_translation():
     origins = np.array([[2, 1, 0], [3, -7, 4]])
     cs0 = HCS(origins[0, :] * ureg.meter)
     cs1 = HCS(origins[1, :] * ureg.meter, reference=cs0)
-    np.testing.assert_equal(cs1.relative_position(cs0), origins[0, :] - origins.sum(axis=0))
+    np.testing.assert_equal(
+        cs1.relative_position(cs0).data.magnitude, origins[0, :] - origins.sum(axis=0)
+    )
 
 
 def test_compound_rotation_global_position():
@@ -45,7 +47,7 @@ def test_compound_rotation_global_position():
     )
 
     np.testing.assert_array_almost_equal(
-        local_ant.global_position,
+        local_ant.global_position.data.magnitude,
         np.array([-5.0, 10.0, 10.0]),
     )
 
@@ -65,7 +67,7 @@ def test_compound_rotation_mixed_global_position():
     )
 
     np.testing.assert_array_almost_equal(
-        local_ant.global_position,
+        local_ant.global_position.data.magnitude,
         np.array([-5.0, 10.0, 10.0]),
     )
 
@@ -86,7 +88,7 @@ def test_compound_rotation_relative_position():
     )
 
     np.testing.assert_array_almost_equal(
-        local_ant.relative_position(tower),
+        local_ant.relative_position(tower).data.magnitude,
         np.array([6.0, 0, -5.0]),
     )
 

@@ -32,7 +32,8 @@ def test_download():
     delete_dir(TEST_DATA)
     # Make directory
     TEST_DATA.mkdir(exist_ok=True)
-
+    orig_folder = DEM_SETTINGS.DEM_FOLDER
+    orig_index = GEOTIFF_INDEX.cache_dir
     DEM_SETTINGS.DEM_FOLDER = TEST_DATA
     GEOTIFF_INDEX.cache_dir = TEST_DATA
 
@@ -46,4 +47,10 @@ def test_download():
     cs_boulder = HCS.from_crs(
         (40.015 * ureg.degree, -105.270556 * ureg.degree, 20 * ureg.m), hagl=True
     )
+    DEM_SETTINGS.DEM_FOLDER = orig_folder
+    GEOTIFF_INDEX.cache_dir = orig_index
     xr.testing.assert_allclose(cs_boulder.global_position, truth)
+
+
+if __name__ == "__main__":
+    rctrk = test_download()
