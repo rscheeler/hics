@@ -209,7 +209,7 @@ class HCSRotation:
         if isinstance(origindata, HCSOrigin):
             origindata = origindata.basemag
 
-        # # Align on shared dimensions
+        # Align on shared dimensions
         quat_da, vector_da = xr.align(self.basemag, origindata, join="inner")
 
         # Check if rotation metadata dims are a subset of position dims
@@ -289,7 +289,8 @@ class HCSRotation:
 
     def __mul__(self, other: "HCSRotation") -> "HCSRotation":
         # Align and flatten
-        q1, q2 = xr.align(self.basemag, other.basemag, join="outer")
+        q1, q2 = xr.broadcast(self.basemag, other.basemag)
+
         q1 = q1.transpose(*[d for d in q1.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
         q2 = q2.transpose(*[d for d in q2.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
         r1 = Rotation.from_quat(q1.data.reshape(-1, len(_QUATERNION_COORDS)))
@@ -595,6 +596,8 @@ class HCS:
 
         # Compose all rotations
         rot_chain = req_to_global + global_to_self
+        # Reverse chain order
+        rot_chain = rot_chain[::-1]
         composed = rot_chain[0]
         for r in rot_chain[1:]:
             composed = composed * r
