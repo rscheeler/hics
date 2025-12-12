@@ -12,6 +12,37 @@ from .hics import HCS
 plt.rcParams["animation.html"] = "jshtml"
 
 
+def viewcs(
+    cs: HCS,
+    reference_cs: HCS | None = None,
+    ax: plt.Axes | pv.Plotter | None = None,
+    vector_length: float = 1,
+    units: str = "m",
+    animate=False,
+    backend: str = "pyvista",
+) -> plt.Axes | pv.Plotter:
+    if backend == "pyvista":
+        return viewcs_pyvista(
+            cs,
+            reference_cs=reference_cs,
+            plotter=ax,
+            vector_length=vector_length,
+            units=units,
+            animate=animate,
+        )
+    elif backend == "matplotlib":
+        return viewcs_matplotlib(
+            cs,
+            reference_cs=reference_cs,
+            ax=ax,
+            vector_length=vector_length,
+            units=units,
+            animate=animate,
+        )
+    else:
+        raise ValueError(f"Backend {backend} not supported.")
+
+
 def viewcs_pyvista(
     cs: HCS,
     reference_cs: HCS | None = None,
@@ -63,103 +94,7 @@ def viewcs_pyvista(
         num_frames = p0r.shape[0]
 
         if animate:
-            # PyVista animation logic using update_scalars/callback
-
-            # Initial Plotting: PyVista's add_arrows requires points and vectors
-            # The structure for pyvista.add_arrows is:
-            # 1. points: (N, 3) array of starting points for the vectors
-            # 2. vectors: (N, 3) array of vector directions/magnitudes
-
-            # PyVista add_arrows can plot all vectors at once, but for animation
-            # where you want to *update* the position, it's often easier to plot
-            # one frame and use a callback to update it, or use `add_mesh` with
-            # the actor returned.
-
-            # Plot the first frame and store actors/meshes for easy updating.
-            # We'll plot one vector set per arrow actor for easier color control.
-
-            # X-vector (Red)
-            x_arrows = plotter.add_arrows(
-                p0r[0, :].reshape(1, 3),  # Start point
-                xvectr[0, :].reshape(1, 3),  # Direction vector
-                color="red",
-                line_width=3,
-                name="x_arrows",  # Name the actor for easy reference/removal
-            )
-            # Y-vector (Green)
-            y_arrows = plotter.add_arrows(
-                p0r[0, :].reshape(1, 3),
-                yvectr[0, :].reshape(1, 3),
-                color="green",
-                line_width=3,
-                name="y_arrows",
-            )
-            # Z-vector (Blue)
-            z_arrows = plotter.add_arrows(
-                p0r[0, :].reshape(1, 3),
-                zvectr[0, :].reshape(1, 3),
-                color="blue",
-                line_width=3,
-                name="z_arrows",
-            )
-
-            # Set the camera
-            plotter.view_isometric()
-
-            def moving_cs_pyvista(frame_i):
-                """Callback function to update the arrow positions for each frame."""
-                # Fetch actors by name (or from the plotter.actors dictionary)
-                x_actor = plotter.actors.get("x_arrows")
-                y_actor = plotter.actors.get("y_arrows")
-                z_actor = plotter.actors.get("z_arrows")
-
-                if x_actor:
-                    # Update X-vector
-                    new_x_mesh = pv.Arrow(
-                        start=p0r[frame_i, :],
-                        direction=xvectr[frame_i, :],
-                        tip_length=0.2,  # Default PyVista arrow attributes
-                        tip_radius=0.1,
-                        shaft_radius=0.05,
-                    )
-                    x_actor.SetMapper(new_x_mesh.mapper)
-
-                if y_actor:
-                    # Update Y-vector
-                    new_y_mesh = pv.Arrow(
-                        start=p0r[frame_i, :],
-                        direction=yvectr[frame_i, :],
-                        tip_length=0.2,
-                        tip_radius=0.1,
-                        shaft_radius=0.05,
-                    )
-                    y_actor.SetMapper(new_y_mesh.mapper)
-
-                if z_actor:
-                    # Update Z-vector
-                    new_z_mesh = pv.Arrow(
-                        start=p0r[frame_i, :],
-                        direction=zvectr[frame_i, :],
-                        tip_length=0.2,
-                        tip_radius=0.1,
-                        shaft_radius=0.05,
-                    )
-                    z_actor.SetMapper(new_z_mesh.mapper)
-
-                # Update title
-                plotter.add_text(
-                    f"{p0.dims[0]}={p0.coords[p0.dims[0]][frame_i].data}",
-                    name="frame_title",
-                    position="upper_right",
-                )
-
-            # Start the animation loop
-            # This is the PyVista equivalent of matplotlib's FuncAnimation
-            plotter.add_callback(
-                lambda frame: moving_cs_pyvista(frame % num_frames),
-                interval=10,  # Interval in ms
-            )
-            plotter.open_gif("cs_animation.gif")  # Optional: save to GIF
+            raise NotImplementedError("Pyvista animation not supported.")
 
         else:
             # Plot all coordinate systems at once (Non-Animated)
@@ -216,12 +151,13 @@ def viewcs_pyvista(
 
     # Set the camera
     plotter.view_isometric()
-
+    # Add grid
+    plotter.show_grid(minor_ticks=True, ticks="inside")
     # PyVista returns the plotter object
     return plotter
 
 
-def viewcs(
+def viewcs_matplotlib(
     cs: HCS,
     reference_cs: HCS | None = None,
     ax: plt.Axes | None = None,
