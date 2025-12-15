@@ -20,7 +20,10 @@ from .config import DEM_SETTINGS
 from .downloader import DEM_CATALOG, GeoAsset, get_geospatial_data
 
 # Load and format legend
-NLCDLEG = pd.read_csv(DEM_SETTINGS.NLCDLEG_FILE, skiprows=1)
+# This file is manually created
+# The category and color from https://www.mrlc.gov/data/legends/national-land-cover-database-class-legend-and-description
+# Height and gound type is customizable, followed this resource: https://www.pathloss.com/webhelp/terrain_data/terdat_clutter_clutdef.html
+NLCDLEG = pd.read_csv(DEM_SETTINGS.NLCDLEG_FILE, skiprows=2)
 # Convert RGBA to tuple
 NLCDLEG["RGBA"] = [eval(rgba) for rgba in NLCDLEG["RGBA"]]
 NLCDLEG["rgbint"] = [tuple([r / 255 for r in rgba]) for rgba in NLCDLEG["RGBA"]]

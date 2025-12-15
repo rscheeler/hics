@@ -55,7 +55,7 @@ class HCSOrigin:
                 # Make dims
                 dims = [f"dim{i}" for i in range(len(data.shape))]
                 dims[data.shape.index(len(_POSITION_COORDS))] = _POSITION_DIM
-                logger.info(f"Assigning default dims: {dims}")
+                logger.debug(f"Assigning default dims: {dims}")
                 data = xr.DataArray(data, dims=dims, coords=_POSITION_COORD_DICT)
             else:
                 raise ValueError(f"Data shape not compatible: {data.shape}")
@@ -217,11 +217,11 @@ class HCSRotation:
         position_dims = set(vector_da.dims) - {_POSITION_DIM}
         if not rotation_dims.issubset(position_dims):
             # Broadcast position to match rotation metadata dims
-            logger.info("Broadcasting position")
+            logger.debug("Broadcasting position")
             vector_da = vector_da.broadcast_like(quat_da.isel(**{_QUATERNION_DIM: 0}).squeeze())
         if not position_dims.issubset(rotation_dims):
             # Broadcast position to match rotation metadata dims
-            logger.info("Broadcasting rotation")
+            logger.debug("Broadcasting rotation")
             quat_da = quat_da.broadcast_like(vector_da.isel(**{_POSITION_DIM: 0}).squeeze())
 
         # Align dimensions and flatten

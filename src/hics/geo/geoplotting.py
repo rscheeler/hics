@@ -264,6 +264,8 @@ def plotnlcd(pts: list | None = None):
     """
     Plot NLCD data with correct colors.
     """
+    # Load data
+    DEM.load(pts)
     # colormap determination and setting bounds
     indx_list = np.unique(DEM.nlcd.data)
     r_cmap = NLCDLEG.loc[NLCDLEG["Value"].isin(indx_list)]["rgbint"].values
