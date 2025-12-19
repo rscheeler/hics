@@ -3,6 +3,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import xarray as xr
+from loguru import logger
 from pint import Quantity
 from scipy.spatial.transform import Rotation
 
@@ -22,6 +23,7 @@ def interp_llpnts2hcs(
     bank_turns: bool = False,
     hagl: bool = False,
     z: int = 1,
+    time_precision="s",
 ) -> HCS:
     """
     Takes in a list of (lat, lon) pairs and a constant height which can either be specified as
@@ -79,8 +81,12 @@ def interp_llpnts2hcs(
         dist_m *= ureg.m
 
         # Get time from distance and speed
-        elapsed_time = (dist_m / speed).to("seconds")
-        isotime.append(loop_start + np.cumsum(elapsed_time.magnitude).astype("timedelta64[s]"))
+        elapsed_time = (dist_m / speed).to(time_precision)
+        logger.debug(f"Loop start {loop_start}")
+        logger.debug(f"elapsed_time {elapsed_time.magnitude}")
+        isotime.append(
+            loop_start + np.cumsum(elapsed_time.magnitude).astype(f"timedelta64[{time_precision}]")
+        )
 
         # Get the unit vectors
         pnt_ecef = llh2geocent.transform(
@@ -335,3 +341,55 @@ def racetrack_latlon(
 
     # TODO: figure out how to ensure the length is correct
     return pnts
+
+
+def heading_latlon(
+    starting_lat: Quantity,
+    starting_lon: Quantity,
+    speed: Quantity,
+    duration: Quantity,
+    sample_rate: Quantity,
+    azimuth: Quantity = 0 * ureg.degree,
+) -> list[tuple]:
+    """Generate lat,lon points for specific azimuth heading.
+
+    Parameters
+    ----------
+    starting_lat : Quantity
+        Starting latitude
+    starting_lon : Quantity
+        Starting longitude
+    speed : Quantity
+        Speed
+    duration : Quantity
+        Time of flight
+    sample_rate : Quantity
+        How fast to sample position
+    azimuth : Quantity, optional
+        Azimuth of heading, by default 0*ureg.degree
+
+    Returns:
+    -------
+    list[tuple] : List of lat,lon pairs.
+    """
+    # Get sample distance and total points
+    delta = (speed / sample_rate).to("m").magnitude
+    npoints = int(duration * sample_rate) + 1
+
+    # Convert to degrees
+    az_deg = azimuth.to("degree").magnitude
+    latdeg = starting_lat.to("degree").magnitude
+    londeg = starting_lon.to("degree").magnitude
+
+    # Call fwd and include initial and terminal points
+    res = GEOD.fwd_intermediate(
+        londeg,
+        latdeg,
+        az_deg,
+        npoints,
+        delta,
+        initial_idx=0,
+        terminus_idx=0,
+    )
+    points = [(la, lo) for la, lo in zip(res.lats, res.lons)]
+    return points
