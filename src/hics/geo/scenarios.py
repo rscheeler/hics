@@ -82,8 +82,6 @@ def interp_llpnts2hcs(
 
         # Get time from distance and speed
         elapsed_time = (dist_m / speed).to(time_precision)
-        logger.debug(f"Loop start {loop_start}")
-        logger.debug(f"elapsed_time {elapsed_time.magnitude}")
         isotime.append(
             loop_start + np.cumsum(elapsed_time.magnitude).astype(f"timedelta64[{time_precision}]")
         )
