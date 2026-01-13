@@ -3,7 +3,9 @@ hics: Hierarchical Coordinate System Module containing HCS class which stores po
 orientation.
 """
 
+import pickle
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Optional, Union
 
 import numpy as np
@@ -130,6 +132,12 @@ class HCSOrigin:
         if self._basemag is not None and hasattr(self._basemag, name):
             return getattr(self._basemag, name)
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+    def __getstate__(self):
+        return vars(self)
+
+    def __setstate__(self, state):
+        vars(self).update(state)
 
 
 class HCSRotation:
@@ -307,6 +315,12 @@ class HCSRotation:
         if self._quat is not None and hasattr(self._quat, name):
             return getattr(self._quat, name)
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+    def __getstate__(self):
+        return vars(self)
+
+    def __setstate__(self, state):
+        vars(self).update(state)
 
 
 class HCS:
@@ -632,6 +646,11 @@ class HCS:
         rel_dist.name = "Relative Distance"
 
         return rel_dist
+
+    def save(self, filename: Path):
+        with open(Path(filename).with_suffix(".hics"), "wb") as file:
+            # Serialize the data and write it to the file
+            pickle.dump(self, file)
 
 
 # Create global coorinate system, this is the default
