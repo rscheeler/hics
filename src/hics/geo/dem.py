@@ -182,24 +182,27 @@ class _DEM(Singleton):
 
             # Land clutter data
             # Grab data
-            with open_rasterio(DEM_SETTINGS.NLCD_FILE) as r:
-                nlcd = r.rio.clip_box(
-                    minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat, crs="EPSG:4326"
-                ).rio.reproject("EPSG:4326")
+            try:
+                with open_rasterio(DEM_SETTINGS.NLCD_FILE) as r:
+                    nlcd = r.rio.clip_box(
+                        minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat, crs="EPSG:4326"
+                    ).rio.reproject("EPSG:4326")
 
-            # Flip y to be increasing
-            nlcd = nlcd.isel(y=slice(None, None, -1))
-            # Rename dimensions
-            nlcd = nlcd.rename({"x": "lon", "y": "lat"})
-            # Get rid of interpolated data
-            nlcd = nlcd.sel(lon=slice(min_lon, max_lon), lat=slice(min_lat, max_lat))
-            # Change degrees to radians
-            nlcd = nlcd.assign_coords(lat=np.deg2rad(nlcd.lat))
-            nlcd = nlcd.assign_coords(lon=np.deg2rad(nlcd.lon))
-            # Drop dims
-            nlcd = nlcd.squeeze("band", drop=True)
+                # Flip y to be increasing
+                nlcd = nlcd.isel(y=slice(None, None, -1))
+                # Rename dimensions
+                nlcd = nlcd.rename({"x": "lon", "y": "lat"})
+                # Get rid of interpolated data
+                nlcd = nlcd.sel(lon=slice(min_lon, max_lon), lat=slice(min_lat, max_lat))
+                # Change degrees to radians
+                nlcd = nlcd.assign_coords(lat=np.deg2rad(nlcd.lat))
+                nlcd = nlcd.assign_coords(lon=np.deg2rad(nlcd.lon))
+                # Drop dims
+                nlcd = nlcd.squeeze("band", drop=True)
 
-            self._nlcd = nlcd
+                self._nlcd = nlcd
+            except:
+                pass
 
     def interp(
         self, lat: xr.DataArray | None = None, lon: xr.DataArray | None = None, **kwargs
