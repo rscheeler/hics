@@ -29,9 +29,13 @@ NLCDLEG["RGBA"] = [eval(rgba) for rgba in NLCDLEG["RGBA"]]
 NLCDLEG["rgbint"] = [tuple([r / 255 for r in rgba]) for rgba in NLCDLEG["RGBA"]]
 IDXCLUTTERH = np.zeros(NLCDLEG["Value"].max() + 1)
 IDXNLCDCOLOR = np.zeros(NLCDLEG["Value"].max() + 1).tolist()
+IDXSIGMA = np.zeros(NLCDLEG["Value"].max() + 1)
+IDXER = np.zeros(NLCDLEG["Value"].max() + 1)
 for i in NLCDLEG["Value"].values:
     IDXCLUTTERH[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Clutter Height (m)"].item()
     IDXNLCDCOLOR[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["rgbint"].item()
+    IDXSIGMA[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Conductivity (S/m)"].item()
+    IDXER[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Relative Permittivity"].item()
 
 
 def nlcdcat2clutterh(v):

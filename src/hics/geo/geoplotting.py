@@ -278,10 +278,12 @@ def plotnlcd(pts: list | None = None):
     # Plot with colormap
     fig, ax = plt.subplots()
     if pts:
-        nlcd = DEM.nlcd.sel(
-            lon=slice(np.deg2rad(pts[0][1]), np.deg2rad(pts[1][1])),
-            lat=slice(np.deg2rad(pts[0][0]), np.deg2rad(pts[1][0])),
-        ).copy()
+        seldict = dict(
+            lon=slice(*np.sort(np.array([np.deg2rad(pts[0][1]), np.deg2rad(pts[1][1])]))),
+            lat=slice(*np.sort(np.array([np.deg2rad(pts[0][0]), np.deg2rad(pts[1][0])]))),
+        )
+        logger.debug(f"Sel dict {seldict}")
+        nlcd = DEM.nlcd.sel(**seldict).copy()
     else:
         nlcd = DEM.nlcd.copy()
     # Convert quantities
