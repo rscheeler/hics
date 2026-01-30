@@ -1,23 +1,23 @@
 # NLCD Classes and colors from https://www.mrlc.gov/data/legends/national-land-cover-database-class-legend-and-description
 # Clutter height and ITM Ground type from: https://www.pathloss.com/webhelp/terrain_data/terdat_clutter_clutdef.html
-Value,Name,RGBA,Clutter Height (m),ITM Ground Type,Relative Permittivity,Conductivity (S/m)
-11,Open Water,"(70, 107, 159, 255)",0.1,fresh_water,81,0.01
-12,Perennial Ice/Snow,"(209, 222, 248, 255)",0.1,poor,4,0.001
-21,"Developed, Open Space","(222, 197, 197, 255)",3,average,15,0.005
-22,"Developed, Low Intensity","(217, 146, 130, 255)",5,average,15,0.005
-23,"Developed, Medium Intensity","(235, 0, 0, 255)",10,average,15,0.005
-24,Developed High Intensity,"(171, 0, 0, 255)",20,average,15,0.005
-31,Barren Land (Rock/Sand/Clay),"(179, 172, 159, 255)",0.1,poor,4,0.001
-41,Deciduous Forest,"(104, 171, 95, 255)",15,average,15,0.005
-42,Evergreen Forest,"(28, 95, 44, 255)",15,average,15,0.005
-43,Mixed Forest,"(181, 197, 143, 255)",15,average,15,0.005
-51,Dwarf Scrub (AK only),"(220, 199, 170, 255)",1,poor,4,0.001
-52,Shrub/Scrub,"(204, 184, 121, 255)",3,average,15,0.005
-71,Grassland/Herbaceous,"(223, 223, 194, 255)",0.5,average,15,0.005
-72,Sedge/Herbaceous (AK only),"(170, 255, 195, 255)",0.5,good,25,0.02
-73,Lichens (AK only),"(212, 248, 104, 255)",0.1,poor,4,0.001
-74,Moss (AK only),"(116, 164, 44, 255)",0.1,poor,4,0.001
-81,Pasture/Hay,"(220, 217, 57, 255)",0.5,average,15,0.005
-82,Cultivated Crops,"(171, 108, 40, 255)",1,average,15,0.005
-90,Woody Wetlands,"(184, 217, 235, 255)",10,good,25,0.02
-95,Emergent Herbaceous Wetlands,"(108, 159, 184, 255)",1,good,25,0.02
+Value,Name,RGBA,Clutter Height (m),ITM Ground Type,Relative Permittivity,Conductivity (S/m),RMS Slope (m)
+11,Open Water,"(70, 107, 159, 255)",0.1,fresh_water,81,0.01, 0.07
+12,Perennial Ice/Snow,"(209, 222, 248, 255)",0.1,poor,4,0.001,0.09
+21,"Developed, Open Space","(222, 197, 197, 255)",3,average,15,0.005,0.21
+22,"Developed, Low Intensity","(217, 146, 130, 255)",5,average,15,0.005,0.35
+23,"Developed, Medium Intensity","(235, 0, 0, 255)",10,average,15,0.005,0.35
+24,Developed High Intensity,"(171, 0, 0, 255)",20,average,15,0.005,0.35
+31,Barren Land (Rock/Sand/Clay),"(179, 172, 159, 255)",0.1,poor,4,0.001,0.2
+41,Deciduous Forest,"(104, 171, 95, 255)",15,average,15,0.005,0.35
+42,Evergreen Forest,"(28, 95, 44, 255)",15,average,15,0.005,0.35
+43,Mixed Forest,"(181, 197, 143, 255)",15,average,15,0.005,0.35
+51,Dwarf Scrub (AK only),"(220, 199, 170, 255)",1,poor,4,0.001,0.25
+52,Shrub/Scrub,"(204, 184, 121, 255)",3,average,15,0.005,0.25
+71,Grassland/Herbaceous,"(223, 223, 194, 255)",0.5,average,15,0.005,0.19
+72,Sedge/Herbaceous (AK only),"(170, 255, 195, 255)",0.5,good,25,0.02,0.19
+73,Lichens (AK only),"(212, 248, 104, 255)",0.1,poor,4,0.001,0.19
+74,Moss (AK only),"(116, 164, 44, 255)",0.1,poor,4,0.001,0.19
+81,Pasture/Hay,"(220, 217, 57, 255)",0.5,average,15,0.005,0.21
+82,Cultivated Crops,"(171, 108, 40, 255)",1,average,15,0.005,0.21
+90,Woody Wetlands,"(184, 217, 235, 255)",10,good,25,0.02,0.19
+95,Emergent Herbaceous Wetlands,"(108, 159, 184, 255)",1,good,25,0.02,0.19

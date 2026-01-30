@@ -31,11 +31,13 @@ IDXCLUTTERH = np.zeros(NLCDLEG["Value"].max() + 1)
 IDXNLCDCOLOR = np.zeros(NLCDLEG["Value"].max() + 1).tolist()
 IDXSIGMA = np.zeros(NLCDLEG["Value"].max() + 1)
 IDXER = np.zeros(NLCDLEG["Value"].max() + 1)
+IDXRMSSLOPE = np.zeros(NLCDLEG["Value"].max() + 1)
 for i in NLCDLEG["Value"].values:
     IDXCLUTTERH[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Clutter Height (m)"].item()
     IDXNLCDCOLOR[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["rgbint"].item()
     IDXSIGMA[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Conductivity (S/m)"].item()
     IDXER[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Relative Permittivity"].item()
+    IDXRMSSLOPE[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["RMS Slope (m)"].item()
 
 
 def nlcdcat2clutterh(v):
