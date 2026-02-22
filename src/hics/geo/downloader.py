@@ -1,13 +1,13 @@
 """Module for downloading terrain data from the national map."""
 
+from __future__ import annotations
+
 import asyncio
 import json
-
-# import os
 from dataclasses import asdict, dataclass
 from operator import itemgetter
 from pathlib import Path
-from typing import TypedDict
+from typing import Optional, TypedDict, Union
 
 import aiofiles
 import aiohttp
@@ -15,6 +15,7 @@ import planetary_computer
 import pystac_client
 import rasterio
 from loguru import logger
+from rasterio.warp import transform_bounds
 from rtree import index
 from tqdm import tqdm
 
@@ -75,7 +76,7 @@ class BoundingBox:
     def __repr__(self) -> str:
         return self.__str__()
 
-    def intersects(self, other_bbox: "BoundingBox") -> bool:
+    def intersects(self, other_bbox: BoundingBox) -> bool:
         """Checks if this bounding box intersects with another bounding box."""
         # Check if the rectangles overlap
         return not (
@@ -106,6 +107,7 @@ class GeoAsset:
     key: str  # Asset ID
     description: str  # Description
     gsd: int  # Ground sample distance
+    date_prop: str  # Item property for date
 
 
 @dataclass
@@ -115,35 +117,54 @@ class _DEM_CATALOG:
     COP30: GeoAsset
     COP90: GeoAsset
     NASA30: GeoAsset
+    LULCv02: GeoAsset
 
 
 DEM_CATALOG = _DEM_CATALOG(
     USGS30=GeoAsset(
-        collection="3dep-seamless", key="data", description="USGS 3DEP Seamless DEMs 30m", gsd=30
+        collection="3dep-seamless",
+        key="data",
+        description="USGS 3DEP Seamless DEMs 30m",
+        gsd=30,
+        date_prop="datetime",
     ),
     USGS10=GeoAsset(
         collection="3dep-seamless",
         key="data",
         description="USGS 3DEP Seamless DEMs 10m",
         gsd=10,
+        date_prop="datetime",
     ),
     COP30=GeoAsset(
         collection="cop-dem-glo-30",
         key="data",
         description="Copernicus GLO-30 DEM	",
         gsd=30,
+        date_prop="datetime",
     ),
     COP90=GeoAsset(
         collection="cop-dem-glo-90",
         key="data",
         description="Copernicus GLO-90 DEM	",
         gsd=90,
+        date_prop="datetime",
     ),
     NASA30=GeoAsset(
-        collection="nasadem", key="elevation", description="NASA DEM 30m data.", gsd=30
+        collection="nasadem",
+        key="elevation",
+        description="NASA DEM 30m data.",
+        gsd=30,
+        date_prop="datetime",
+    ),
+    LULCv02=GeoAsset(
+        collection="io-lulc-annual-v02",
+        key="data",
+        description="10m Annual Land Use Land Cover (9-class) V2",
+        gsd=10,
+        date_prop="start_datetime",
     ),
 )
-GSD_MISSING_COLLECTIONS = {"nasadem"}
+GSD_MISSING_COLLECTIONS = {"nasadem", "io-lulc-annual-v02"}
 
 
 class GeoTIFFIndex(Singleton):
@@ -171,7 +192,10 @@ class GeoTIFFIndex(Singleton):
 
         # JSON file to map R-tree internal IDs to file metadata
         self.metadata_map_path = self.cache_dir / "dem_index_map.json"
+        self._INDEXSETUP = False
 
+    def setupindex(self) -> None:
+        """Create the index."""
         # Set up the Rtree index properties for 2D data
         self.p = index.Property(dimension=2)
         # Use a standard 2D bounding box
@@ -188,6 +212,7 @@ class GeoTIFFIndex(Singleton):
             except Exception as e:
                 logger.error(f"Failed to load existing metadata map: {e}")
                 self.metadata_map = {}  # Reset map if load fails
+        self._INDEXSETUP = True
 
     def _save_metadata_map(self):
         """Saves the current state of the metadata map to JSON."""
@@ -203,7 +228,8 @@ class GeoTIFFIndex(Singleton):
         persistent spatial index. This is the only slow operation.
         """
         logger.info(f"Starting index build/update for {self.cache_dir}...")
-
+        if not self._INDEXSETUP:
+            self.setupindex()
         # Start a new index connection, creating the files if they don't exist
         idx = index.Index(str(self.index_base), properties=self.p)
 
@@ -224,7 +250,7 @@ class GeoTIFFIndex(Singleton):
 
             try:
                 with rasterio.open(fpath_res) as src:  # <-- SLOW OPERATION, only happens here
-                    bbox = src.bounds
+                    bbox = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
 
                     # Extract versioning info (tile_name, date) from your existing logic
                     # TODO: this is wrong
@@ -236,9 +262,7 @@ class GeoTIFFIndex(Singleton):
                     date_int = int(name_parts[-1])  # <-- EASY DATE EXTRACTION
 
                     # 1. Insert into R-tree
-                    bounds = (bbox.left, bbox.bottom, bbox.right, bbox.top)
-
-                    idx.insert(next_id, bounds)
+                    idx.insert(next_id, bbox)
                     # # 2. Determine the source before insertion
                     file_source = infer_source(fpath)
 
@@ -248,7 +272,7 @@ class GeoTIFFIndex(Singleton):
                         tile_name=tile_name,
                         date=date_int,
                         path=str(fpath_res),
-                        bbox=bounds,
+                        bbox=bbox,
                         gsd=gsd,
                     )
 
@@ -286,7 +310,7 @@ class GeoTIFFIndex(Singleton):
         self._save_metadata_map()
         logger.info("Index build/update complete.")
 
-    def query(self, bounding_box: "BoundingBox") -> list[GeoTIFFMetadata]:
+    def query(self, bounding_box: BoundingBox) -> list[GeoTIFFMetadata]:
         """
         Performs a fast spatial query against the index.
 
@@ -300,6 +324,8 @@ class GeoTIFFIndex(Singleton):
         list[GeoTIFFMetadata]
             A list of metadata for all intersecting files.
         """
+        if not self._INDEXSETUP:
+            self.setupindex()
         # Ensure the index is ready to be read
         if not self.index_base.with_suffix(".idx").exists():
             logger.warning("Index files not found.")
@@ -352,7 +378,7 @@ def find_local_geotiffs(bounding_box: BoundingBox, source: GeoAsset) -> list[Pat
     # This returns paths and dates for ALL intersecting tiles
 
     intersecting_tiles_data = GEOTIFF_INDEX.query(bounding_box)
-
+    # logger.debug(f"Intersecting tiles {intersecting_tiles_data}")
     filtered_metadata = [
         meta
         for meta in intersecting_tiles_data
@@ -581,7 +607,7 @@ def get_geospatial_data(
         if geo_asset.collection not in GSD_MISSING_COLLECTIONS:
             # Use GSD filter to ensure we only get the requested resolution
             search_params["query"] = {"gsd": {"eq": geo_asset.gsd}}
-        logger.debug(f"Search params {search_params}")
+
         # Search for items within the collection and bounding box
         search = catalog.search(**search_params)
         items = search.item_collection()
@@ -595,7 +621,7 @@ def get_geospatial_data(
         # Find the Newest STAC Item for each unique tile_name ---
         remote_tile_groups = {}
         for item in items:
-            stac_date = item.properties.get("datetime", "0000-00-00T00:00:00Z")
+            stac_date = item.properties.get(geo_asset.date_prop, "0000-00-00T00:00:00Z")
             date_stamp = stac_date.split("T")[0].replace("-", "")
             date_int = int(date_stamp) if date_stamp.isdigit() else 0
 
@@ -604,12 +630,11 @@ def get_geospatial_data(
             actual_gsd = int(round(item_gsd)) if item_gsd is not None else geo_asset.gsd
 
             # Tile name
-            tile_name = item.id
+            tile_name = item.properties.get("io:tile_id")
 
             remote_tile_groups.setdefault(tile_name, []).append(
                 {"item": item, "tile_name": tile_name, "date_int": date_int, "gsd": actual_gsd}
             )
-
         # Select the single newest item for each tile - might not be necessary
         newest_remote_items = {}
         for tile_name, items in remote_tile_groups.items():
@@ -694,8 +719,6 @@ def get_geospatial_data(
             GEOTIFF_INDEX.build_index()
 
         # Final result is the union of files that were already current AND the newly downloaded ones
-        logger.debug(f"{final_local_paths}")
-        logger.debug(f"{downloaded_paths}")
         results = final_local_paths + downloaded_paths
 
     except Exception as e:

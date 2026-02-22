@@ -3,6 +3,8 @@ hics: Hierarchical Coordinate System Module containing HCS class which stores po
 orientation.
 """
 
+from __future__ import annotations
+
 import pickle
 from copy import deepcopy
 from pathlib import Path
@@ -10,7 +12,6 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import xarray as xr
-from loguru import logger
 from pint import Quantity
 from scipy.spatial.transform import Rotation, Slerp
 
@@ -24,8 +25,11 @@ from .datatypes import (
     _QUATERNION_DIM,
 )
 from .geo import HAS_GEO_DEPS
-from .geo.transforms import amsl2hagl, geocent2llh
 from .utils import vector_norm
+
+if HAS_GEO_DEPS:
+    from .geo.crs import from_crs
+    from .geo.transforms import amsl2hagl, geocent2llh
 
 
 class HCSOrigin:
@@ -86,7 +90,7 @@ class HCSOrigin:
         """Returns the internal data with the original unit reapplied."""
         return self.apply_units(self._basemag.copy())
 
-    def interp(self, **kwargs) -> "HCSOrigin":
+    def interp(self, **kwargs) -> HCSOrigin:
         """Interpolate basedata."""
         newdata = self.apply_units(self._basemag.interp(**kwargs))
         return HCSOrigin(newdata)
@@ -107,7 +111,7 @@ class HCSOrigin:
         magdata.data = (magdata.data * self.base_units).to(self.original_units)
         return magdata
 
-    def testcoords(self, other: Union["HCSOrigin", "HCSRotation"]) -> bool:
+    def testcoords(self, other: HCSOrigin | HCSRotation) -> bool:
         """Test non-positional coordinates with another HCSOrigin."""
         if _POSITION_DIM in self.basemag.dims:
             selfcoords = self.basemag.drop_vars(_POSITION_DIM).coords
@@ -259,7 +263,7 @@ class HCSRotation:
 
         return self._slerp
 
-    def interp(self, time) -> "HCSRotation":
+    def interp(self, time) -> HCSRotation:
         """Interpolate self using slerp, only works for time."""
         # Interpolate
         tdelta = (time - time[0]) / np.timedelta64(1, "ns")
@@ -273,7 +277,7 @@ class HCSRotation:
             )
         )
 
-    def inverse(self) -> "HCSRotation":
+    def inverse(self) -> HCSRotation:
         """Return inverse rotation as HCSRotation object."""
         rot = self.as_multirotation().inv()
         inv_quats = rot.as_quat().reshape(self.basemag.shape)
@@ -292,7 +296,7 @@ class HCSRotation:
         """
         return Rotation.from_quat(self.basemag.data.reshape(-1, len(_QUATERNION_COORDS)))
 
-    def __mul__(self, other: "HCSRotation") -> "HCSRotation":
+    def __mul__(self, other: HCSRotation) -> HCSRotation:
         # Align and flatten
         q1, q2 = xr.broadcast(self.basemag, other.basemag)
 
@@ -343,7 +347,7 @@ class HCS:
         self,
         origin: xr.DataArray | Quantity,
         rotation: xr.DataArray | Rotation | None = None,
-        reference: Optional["HCS"] = None,
+        reference: HCS | None = None,
         name: str | None = "Untitled",
     ) -> None:
         self.name = name
@@ -387,7 +391,7 @@ class HCS:
         self.clear_cache()
 
     @classmethod
-    def from_crs(cls, *args, **kwargs) -> "HCS":
+    def from_crs(cls, *args, **kwargs) -> HCS:
         """Alternate constructor using geospatial Coordinate Reference System."""
         raise ImportError
 
@@ -431,12 +435,12 @@ class HCS:
         self.clear_cache()
 
     @property
-    def reference(self) -> "HCS":
+    def reference(self) -> HCS:
         """Reference HCS of the coordinate system."""
         return self._reference
 
     @reference.setter
-    def reference(self, value: Optional["HCS"] = None) -> None:
+    def reference(self, value: HCS | None = None) -> None:
         """Reference HCS setter."""
         if isinstance(value, HCS) or value is None:
             self._reference = value
@@ -549,7 +553,7 @@ class HCS:
 
         return self._hagl
 
-    def interp(self, time: xr.DataArray) -> "HCS":
+    def interp(self, time: xr.DataArray) -> HCS:
         """
         Interpolates and returns new HCS object. Only works for time dimension.
 
@@ -565,7 +569,7 @@ class HCS:
 
         return HCS(neworigin, newrotation)
 
-    def relative_position(self, other_hcs: Union["HCS", xr.DataArray]):
+    def relative_position(self, other_hcs: HCS | xr.DataArray):
         """Determine position of other_hcs in self HCS."""
         if isinstance(other_hcs, HCS):
             oc = other_hcs._global_position.basemag
@@ -587,7 +591,7 @@ class HCS:
 
         return pos
 
-    def get_relative_rotation(self, request_cs: "HCS") -> xr.DataArray | Rotation:
+    def get_relative_rotation(self, request_cs: HCS) -> xr.DataArray | Rotation:
         """
         Get the rotations from request_cs back to the global and then from global back to self.
 
@@ -615,7 +619,7 @@ class HCS:
 
         return composed
 
-    def find_common_cs(self, other_hcs: "HCS") -> "HCS":
+    def find_common_cs(self, other_hcs: HCS) -> HCS:
         """
         Finds a common coordinate system between the two coordinate systems. Returns None if no
         common coordinate system is found.
@@ -639,7 +643,7 @@ class HCS:
                     break
         return common
 
-    def relative_distance(self, other_hcs: Union["HCS", xr.DataArray]):
+    def relative_distance(self, other_hcs: HCS | xr.DataArray):
         """Determine distance of other_hcs in self HCS."""
         rel_pos = self.relative_position(other_hcs)
         rel_dist = vector_norm(rel_pos, dim="position")
@@ -656,3 +660,6 @@ class HCS:
 # Create global coorinate system, this is the default
 GLOBAL_CS = HCS((0, 0, 0) * ureg.m, reference="GLOBAL", name="Global HCS")
 GLOBAL_CS.reference = None
+# Patch from_crs if geo dependencies exist
+if HAS_GEO_DEPS:
+    HCS.from_crs = classmethod(from_crs)

@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 from copy import deepcopy
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import xarray as xr
 from loguru import logger
-from pyproj import Transformer
 from scipy.spatial.transform import Rotation
 
-from .. import HCS, ureg
+from .. import ureg
 from ..datatypes import _QUATERNION_COORD_DICT, _QUATERNION_COORDS, _QUATERNION_DIM
 from ..utils import vector_norm
 from .transforms import XRCRSTransformer, hagl2amsl
+
+if TYPE_CHECKING:
+    from .. import HCS, ureg
 
 
 def from_crs(
@@ -66,7 +70,7 @@ def from_crs(
     pnt = togeocent.transform(*coords, to_da=True, hagl=hagl)
     # Form unit vectors by moving a very small distance along lat, lon, or h
     idxmap = togeocent.source_dims
-    delta = [d * u for d, u in zip([1e-6, 1e-6, 0.01], togeocent.source_units)]
+    delta = [d * u for d, u in zip([1e-6, 1e-6, 0.01], togeocent.source_units, strict=False)]
     coords_un = deepcopy(coords)
     coords_ux = deepcopy(coords)
 
@@ -111,19 +115,12 @@ def from_crs(
     un = un.values.reshape(3, -1)
 
     matrices = np.stack([ux, uy, un], axis=-1).transpose(1, 2, 0)  # shape: (N, 3, 3)
-    logger.debug(matrices.shape)
+
     rots = Rotation.from_matrix(matrices)
     rots = xr.DataArray(
         rots.as_quat().reshape(list(uxshape[1:]) + [len(_QUATERNION_COORDS)]),
         dims=rd + [_QUATERNION_DIM],
         coords={**rc, **_QUATERNION_COORD_DICT},
     )
-
-    # # Making into array and reshape
-    # if uxshape[1:] != ():
-    #     rots = np.array(rots).reshape(uxshape[1:])
-    #     rot = xr.DataArray(rots, dims=rd, coords=rc)
-    # else:
-    #     rot = rots[0]
 
     return cls(pnt, rotation=rots)

@@ -20,7 +20,7 @@ from shapely.geometry import LineString
 
 from .. import ureg
 from ..hics import HCS
-from .dem import DEM, NLCDLEG, nlcdcat2color
+from .dem import DEM
 from .geoutils import get_surface_profile
 from .transforms import GEOD
 
@@ -31,7 +31,7 @@ plt.rcParams["animation.html"] = "jshtml"
 
 
 def nlcdcolor(nlcd):
-    return list(map(nlcdcat2color, nlcd))
+    return list(map(DEM.nlcdcat2color, nlcd))
 
 
 def view_surface_profile(
@@ -261,20 +261,20 @@ def airplane_marker():
 
 
 def plotnlcd(pts: list | None = None):
-    """
-    Plot NLCD data with correct colors.
-    """
+    """Plot NLCD data with correct colors."""
     # Load data
     DEM.load(pts)
     # colormap determination and setting bounds
-    indx_list = np.unique(DEM.nlcd.data)
-    r_cmap = NLCDLEG.loc[NLCDLEG["Value"].isin(indx_list)]["rgbint"].values
-    raster_cmap = ListedColormap(r_cmap)  # defining the NLCD specific color map
-    # Have to add an item to boundary norm boundaries to get correct colorbar
-    norm = matplotlib.colors.BoundaryNorm(
-        list(indx_list) + [255], raster_cmap.N
-    )  # specifying colors based on num. unique points
+    full_indices = DEM.nlcd_legend["Value"].values
+    full_colors = DEM.nlcd_legend["rgbint"].values
+    full_names = DEM.nlcd_legend["Name"].values
+    raster_cmap = ListedColormap(full_colors)
+    raster_cmap.set_bad(color="white", alpha=0)
+    # Define boundaries exactly around the integer values
+    boundaries = np.append(full_indices, full_indices[-1] + 1) - 0.5
 
+    # Use len(full_colors) explicitly to match the cmap size
+    norm = matplotlib.colors.BoundaryNorm(boundaries, len(full_colors))
     # Plot with colormap
     fig, ax = plt.subplots()
     if pts:
@@ -282,7 +282,6 @@ def plotnlcd(pts: list | None = None):
             lon=slice(*np.sort(np.array([np.deg2rad(pts[0][1]), np.deg2rad(pts[1][1])]))),
             lat=slice(*np.sort(np.array([np.deg2rad(pts[0][0]), np.deg2rad(pts[1][0])]))),
         )
-        logger.debug(f"Sel dict {seldict}")
         nlcd = DEM.nlcd.sel(**seldict).copy()
     else:
         nlcd = DEM.nlcd.copy()
@@ -306,8 +305,8 @@ def plotnlcd(pts: list | None = None):
     # Assume colorbar was plotted last one plotted last
     cb = fig.axes[-1]
 
-    labels = NLCDLEG.loc[NLCDLEG["Value"].isin(indx_list)]["Name"].values
-    cb.set_yticks(indx_list)
+    labels = full_names
+    cb.set_yticks(full_indices)
     cb.set_yticklabels(labels, verticalalignment="bottom")
     cb.set_ylabel("")
 

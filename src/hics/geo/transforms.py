@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 import xarray as xr
-from loguru import logger
 from pint import Quantity
 from pyproj import Geod, Transformer
 

@@ -3,60 +3,208 @@ Module for using digital elevation model (DEM) data
 Automatically downloading terrain data from the national map.
 """
 
-import subprocess
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 from loguru import logger
 from pint import Quantity
+from rasterio.enums import Resampling
 from rioxarray import open_rasterio
-from rioxarray.merge import merge_arrays
 
-from .. import ureg
 from ..utils import Singleton
 from .config import DEM_SETTINGS
 from .downloader import DEM_CATALOG, GeoAsset, get_geospatial_data
+from .setup_assets import generate_rf_csv
+
+# For linting
+if TYPE_CHECKING:
+    import xarray as xr
+
+    # from pint import Quantity
+    from rasterio.enums import Resampling
 
 
 # Utility function to generate a VRT file
-def _generate_vrt(vrt_path: Path, file_paths: list[Path]):
+def _generate_vrt(
+    vrt_path: Path, file_paths: list[Path], dst_crs: str, resample_alg: str = "nearest"
+):
     """
-    Creates a VRT file from a list of GeoTIFF paths using gdalbuildvrt.
-    This is critical for lazy loading of merged data.
+    Creates a reprojected VRT by first building a mosaic and then warping it.
+    This ensures all tiles are included and the projection is correct.
     """
     if not file_paths:
         raise ValueError("Cannot build VRT with an empty list of files.")
 
-    # gdalbuildvrt command: -q for quiet, vrt_path is output, followed by input files
-    # The list of input files must be passed as strings to subprocess
-    command = ["gdalbuildvrt", "-q", str(vrt_path)] + [str(p) for p in file_paths]
+    input_files = [str(p) for p in file_paths]
+    # We use a temporary VRT to hold the mosaic structure
+    temp_mosaic_vrt = vrt_path.with_suffix(".mosaic.vrt")
+    from osgeo import gdal
 
     try:
-        # Run the command and capture output/errors
-        subprocess.run(command, check=True, capture_output=True, text=True)
-        logger.info(f"Successfully created VRT: {vrt_path.name}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"gdalbuildvrt failed with error:\n{e.stderr}")
-        raise RuntimeError("Failed to create VRT file.")
-    except FileNotFoundError:
-        logger.error("gdalbuildvrt command not found. Ensure GDAL is installed and in your PATH.")
-        raise FileNotFoundError("GDAL (which includes gdalbuildvrt) is required to create VRTs.")
+        # 1. Create a standard mosaic VRT on disk.
+        # This writes the actual file paths into the XML.
+        gdal.BuildVRT(str(temp_mosaic_vrt), input_files)
+
+        # 2. Warp the mosaic VRT to create the final reprojected VRT.
+        # This will now reference temp_mosaic_vrt by path, not memory handle.
+        options = gdal.WarpOptions(
+            format="VRT",
+            dstSRS=dst_crs,
+            resampleAlg="nearest",
+            outputBounds=None,
+            multithread=True,
+            errorThreshold=0,  # Disable coordinate approximation
+            warpOptions=["SRC_METHOD=NO_GEOTRANSFORM"],  # Ensure pixel center alignment
+        )
+
+        ds = gdal.Warp(str(vrt_path), str(temp_mosaic_vrt), options=options)
+
+        if ds is None:
+            raise RuntimeError("GDAL Warp failed.")
+
+        # 3. Clean up: Close the dataset to flush to disk
+        ds = None
+        logger.info(f"VRT created: {vrt_path}")
+
     except Exception as e:
-        logger.error(f"An unexpected error occurred during VRT creation: {e}")
+        logger.error(f"VRT generation failed: {e}")
         raise
+
+
+def load_geotiffs(
+    geotiffs, vrt_suffix, dst_crs, minmax_latlon=None, resampling: Resampling | None = None
+):
+    if resampling is None:
+        resampling = Resampling.nearest
+
+    chunks_dict = {"x": 1024, "y": 1024}
+    # Create a unique VRT for this specific data type
+    # Place it in a .vrt subfolder to keep the main folder clean
+    vrt_dir = DEM_SETTINGS.DEM_FOLDER / ".vrt"
+    vrt_dir.mkdir(exist_ok=True)
+    vrt_file = vrt_dir / f"hics_{vrt_suffix}.vrt"
+
+    try:
+        from osgeo import gdal
+
+        # Multiple tiles: build a VRT for lazy merging
+        # Use same vrt file for everything and just overwrite
+        # Generate VRT
+        _generate_vrt(vrt_file, geotiffs, dst_crs, resample_alg=resampling.name.lower())
+
+        # Open the VRT file for lazy reading
+        data = open_rasterio(vrt_file, masked=True, chunks=chunks_dict)
+    except ImportError:
+        from rioxarray.merge import merge_arrays
+
+        logger.info("Merging geotiffs...")
+        # Open each file
+        data_arrays = [open_rasterio(f, chunks=chunks_dict) for f in geotiffs]
+        # Merge
+        data = merge_arrays(data_arrays)
+        # Reproject if needed
+        if data.rio.crs != dst_crs:
+            logger.info(f"Reprojecting clipped area to EPSG:4326 using {resampling.name}")
+            data = data.rio.reproject("EPSG:4326", resampling=resampling)
+    # Clip
+    if minmax_latlon is not None:
+        data = data.rio.clip_box(
+            minx=minmax_latlon[0][0],
+            miny=minmax_latlon[1][0],
+            maxx=minmax_latlon[0][1],
+            maxy=minmax_latlon[1][1],
+            crs=dst_crs,
+        )
+
+    # Rename dimensions
+    data = data.rename({"x": "lon", "y": "lat"})
+
+    # Change degrees to radians
+    data = data.assign_coords(lat=np.deg2rad(data.lat))
+    data = data.assign_coords(lon=np.deg2rad(data.lon))
+    # Drop dims
+    data = data.squeeze("band", drop=True)
+    # Ensure data is float64
+    data = data.astype(np.float64)
+
+    return data
 
 
 class _DEM(Singleton):
     """Container class for digital elevation model (DEM) data."""
 
-    def __init__(self, geo_asset: GeoAsset = DEM_CATALOG.USGS30, local_only: bool = True) -> None:
+    def __init__(
+        self,
+        geo_asset: GeoAsset = DEM_CATALOG.USGS30,
+        lc_asset: GeoAsset = DEM_CATALOG.LULCv02,
+        local_only: bool = True,
+    ) -> None:
         # Initialize internal data caches to None for lazy loading
         self._data = None
         self._nlcd = None
         self.local_only = local_only
         self.geo_asset = geo_asset
+        self.lc_asset = lc_asset
+        # Lazy-loaded legend attributes
+        self._nlcd_leg = None
+        self._lookup_tables = {}
+
+    def _ensure_legend_loaded(self):
+        """Lazy-loads the NLCD legend and builds lookup tables only when needed."""
+        if self._nlcd_leg is not None:
+            return
+
+        leg_file = DEM_SETTINGS.NLCDLEG_FOLDER / f"{self.lc_asset.collection}.csv"
+        if not leg_file.exists():
+            logger.info(f"Generating legend file: {leg_file}")
+            generate_rf_csv(leg_file.stem)
+
+        logger.info("Loading NLCD Legend and building lookup tables...")
+        df = pd.read_csv(leg_file)
+
+        # Process colors
+        df["RGBA"] = df["RGBA"].apply(eval)
+        df["rgbint"] = df["RGBA"].apply(lambda rgba: tuple(r / 255 for r in rgba))
+
+        # Build Lookup Tables (LUTs) based on max NLCD value
+        max_val = df["Value"].max()
+        clutter_h = np.zeros(max_val + 1)
+        nlcd_color = [(0, 0, 0, 0)] * (max_val + 1)
+
+        for _, row in df.iterrows():
+            idx = int(row["Value"])
+            clutter_h[idx] = row.get("Clutter Height (m)", 0.0)
+            nlcd_color[idx] = row["rgbint"]
+
+        self._nlcd_leg = df
+        self._lookup_tables = {"clutter_h": clutter_h, "colors": nlcd_color}
+
+    @property
+    def nlcd_legend(self):
+        self._ensure_legend_loaded()
+        return self._nlcd_leg
+
+    @property
+    def idx_clutter_h(self):
+        self._ensure_legend_loaded()
+        return self._lookup_tables["clutter_h"]
+
+    @property
+    def idx_colors(self):
+        self._ensure_legend_loaded()
+        return self._lookup_tables["colors"]
+
+    def nlcdcat2clutterh(self, v):
+        self._ensure_legend_loaded()
+        return self.idx_clutter_h[int(v)]
+
+    def nlcdcat2color(self, v):
+        return self.idx_colors[int(v)]
 
     @property
     def data(self) -> xr.DataArray:
@@ -76,28 +224,32 @@ class _DEM(Singleton):
             )
         return self._nlcd
 
-    def clutterh(self, nlcd) -> xr.DataArray:
+    def clutterh(self, nlcd: xr.DataArray) -> xr.DataArray:
         """
         Get clutter height from land cover mapping.
 
         Parameters
         ----------
-        nlcd : _type_
-            _description_
+        nlcd : xr.DataArray
+            Land cover data from self.interp_nlcd
 
         Returns:
         -------
-        _type_
-            _description_
+        Clutter height from the legend file: xr.DataArray
         """
         clutter_h = xr.full_like(nlcd, 1.0)
-        clutter_h.data = IDXCLUTTERH[nlcd.values.astype(int)]
+        clutter_h.data = self.idx_clutter_h[nlcd.values.astype(int)]
         return clutter_h
 
     @property
     def geotiffs(self):
         """GeoTiff file paths."""
         return self._geotiffs
+
+    @property
+    def lcgeotiffs(self):
+        """Land cover GeoTiff file paths."""
+        return self._lcgeotiffs
 
     def load(self, points: list) -> None:
         """
@@ -112,75 +264,26 @@ class _DEM(Singleton):
             Contains lat/lon points: [(lat0,lon0), (lat1,lon1),...,(latN,lonN)]
         """
         self._geotiffs = get_geospatial_data(self.geo_asset, points, local_only=self.local_only)
+        self._lcgeotiffs = get_geospatial_data(self.lc_asset, points, local_only=self.local_only)
         if self.geotiffs is not None:
             logger.info(f"Loading geotiffs: {self.geotiffs}")
-            chunks_dict = {"x": 1024, "y": 1024}
 
-            # Merge GeoTIFFS in memory
-            if len(self.geotiffs) == 1:
-                data = open_rasterio(self.geotiffs[0], chunks=chunks_dict)
-            else:
-                try:
-                    from osgeo import gdal
+            self._data = load_geotiffs(self.geotiffs, "dem", "EPSG:4269")
 
-                    # Multiple tiles: build a VRT for lazy merging
-                    # Use same vrt file for everything and just overwrite
-                    vrt_file = DEM_SETTINGS.DEM_FOLDER / "hicsdem.vrt"
-
-                    # Generate VRT
-                    _generate_vrt(vrt_file, self.geotiffs)
-
-                    # Open the VRT file for lazy reading
-                    data = open_rasterio(vrt_file, masked=True, chunks=chunks_dict)
-                except ImportError:
-                    logger.info("Merging geotiffs...")
-                    # Open each file
-                    data_arrays = [open_rasterio(f, chunks=chunks_dict) for f in self.geotiffs]
-                    # Merge
-                    data = merge_arrays(data_arrays)
-
-            # Rename dimensions
-            data = data.rename({"x": "lon", "y": "lat"})
-            min_lat = data.lat.min()
-            max_lat = data.lat.max()
-            min_lon = data.lon.min()
-            max_lon = data.lon.max()
-            # Change degrees to radians
-            data = data.assign_coords(lat=np.deg2rad(data.lat))
-            data = data.assign_coords(lon=np.deg2rad(data.lon))
-            # Drop dims
-            data = data.squeeze("band", drop=True)
-            # Ensure data is float64
-            data = data.astype(np.float64)
-
-            # Fix auth_code for pyproj
-            # https://pyproj4.github.io/pyproj/stable/gotchas.html
-            # data.attrs["crs"] = data.attrs["crs"].replace("+init=", "")
-            self._data = data
-
-            # Land clutter data
-            # Grab data
-            try:
-                with open_rasterio(DEM_SETTINGS.NLCD_FILE) as r:
-                    nlcd = r.rio.clip_box(
-                        minx=min_lon, miny=min_lat, maxx=max_lon, maxy=max_lat, crs="EPSG:4326"
-                    ).rio.reproject("EPSG:4326")
-
-                # Flip y to be increasing
-                nlcd = nlcd.isel(y=slice(None, None, -1))
-                # Rename dimensions
-                nlcd = nlcd.rename({"x": "lon", "y": "lat"})
-                # Get rid of interpolated data
-                nlcd = nlcd.sel(lon=slice(min_lon, max_lon), lat=slice(min_lat, max_lat))
-                # Change degrees to radians
-                nlcd = nlcd.assign_coords(lat=np.deg2rad(nlcd.lat))
-                nlcd = nlcd.assign_coords(lon=np.deg2rad(nlcd.lon))
-                # Drop dims
-                nlcd = nlcd.squeeze("band", drop=True)
-
-                self._nlcd = nlcd
-            except:
-                pass
+        if self.lcgeotiffs is not None:
+            logger.info(f"Loading land cover geotiffs: {self.lcgeotiffs}")
+            min_lat = np.rad2deg(self.data.lat.min())
+            max_lat = np.rad2deg(self.data.lat.max())
+            min_lon = np.rad2deg(self.data.lon.min())
+            max_lon = np.rad2deg(self.data.lon.max())
+            self._nlcd = load_geotiffs(
+                self.lcgeotiffs,
+                "lc",
+                "EPSG:4326",
+                [(min_lon, max_lon), (min_lat, max_lat)],
+            )
+            # Flip y to be increasing
+            self._nlcd = self._nlcd.isel(lat=slice(None, None, -1))
 
     def interp(
         self, lat: xr.DataArray | None = None, lon: xr.DataArray | None = None, **kwargs
@@ -297,36 +400,6 @@ class _DEM(Singleton):
 
         return clutterh, nlcd
 
-
-# Load and format legend
-# This file is manually created
-# The category and color from https://www.mrlc.gov/data/legends/national-land-cover-database-class-legend-and-description
-# Height and gound type is customizable, followed this resource: https://www.pathloss.com/webhelp/terrain_data/terdat_clutter_clutdef.html
-try:
-    NLCDLEG = pd.read_csv(DEM_SETTINGS.NLCDLEG_FILE, skiprows=2)
-    # Convert RGBA to tuple
-    NLCDLEG["RGBA"] = [eval(rgba) for rgba in NLCDLEG["RGBA"]]
-    NLCDLEG["rgbint"] = [tuple([r / 255 for r in rgba]) for rgba in NLCDLEG["RGBA"]]
-    IDXCLUTTERH = np.zeros(NLCDLEG["Value"].max() + 1)
-    IDXNLCDCOLOR = np.zeros(NLCDLEG["Value"].max() + 1).tolist()
-    IDXSIGMA = np.zeros(NLCDLEG["Value"].max() + 1)
-    IDXER = np.zeros(NLCDLEG["Value"].max() + 1)
-    IDXRMSSLOPE = np.zeros(NLCDLEG["Value"].max() + 1)
-    for i in NLCDLEG["Value"].values:
-        IDXCLUTTERH[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Clutter Height (m)"].item()
-        IDXNLCDCOLOR[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["rgbint"].item()
-        IDXSIGMA[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Conductivity (S/m)"].item()
-        IDXER[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["Relative Permittivity"].item()
-        IDXRMSSLOPE[i] = NLCDLEG.loc[NLCDLEG["Value"] == i]["RMS Slope (m)"].item()
-
-    def nlcdcat2clutterh(v):
-        return IDXCLUTTERH[int(v)]
-
-    def nlcdcat2color(v):
-        return IDXNLCDCOLOR[int(v)]
-
-except:
-    logger.warning("NLCD legend file not found.")
 
 # Initialize DEMs
 DEM = _DEM()

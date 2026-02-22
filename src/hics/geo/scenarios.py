@@ -204,13 +204,14 @@ def interp_llpnts2hcs(
     return cs
 
 
+@ureg.wraps(None, (ureg.degree, ureg.degree, ureg.m, ureg.m, None, ureg.degree))
 def racetrack_latlon(
-    center_lat: Quantity,
-    center_lon: Quantity,
-    length: Quantity,
-    width: Quantity,
+    center_lat: Quantity | float,
+    center_lon: Quantity | float,
+    length: Quantity | float,
+    width: Quantity | float,
     npts: int,
-    angle=0 * ureg.degree,
+    angle: Quantity | float = 0 * ureg.degree,
 ):
     """
     Makes a racetrack with the specified number of points (or close), length, and width. Point order
@@ -238,51 +239,46 @@ def racetrack_latlon(
     l_tot = length * 2 + np.pi * width
 
     # Convert to magnitudes
-    center_lat_deg = center_lat.to("degree").magnitude
-    center_lon_deg = center_lon.to("degree").magnitude
-    length_m = length.to("m").magnitude
-    width_m = width.to("m").magnitude
-    angle_deg = angle.to("degree").magnitude
-    angle_rad = angle.to("radians").magnitude
+    angle_rad = np.deg2rad(angle)
 
     # Semicircle centers
     start_circle = GEOD.fwd(
-        center_lon_deg,
-        center_lat_deg,
+        center_lon,
+        center_lat,
         np.rad2deg(np.angle(np.exp(1j * (angle_rad - np.pi)))),
-        length_m / 2,
+        length / 2,
     )
     end_circle = GEOD.fwd(
-        center_lon_deg,
-        center_lat_deg,
-        angle_deg,
-        length_m / 2,
+        center_lon,
+        center_lat,
+        angle,
+        length / 2,
     )
     # Get corners
     lr = GEOD.fwd(
         start_circle[0],
         start_circle[1],
         np.rad2deg(np.angle(np.exp(1j * (angle_rad - np.pi / 2)))),
-        width_m / 2,
+        width / 2,
     )
     ll = GEOD.fwd(
         start_circle[0],
         start_circle[1],
         np.rad2deg(np.angle(np.exp(1j * (angle_rad + np.pi / 2)))),
-        width_m / 2,
+        width / 2,
     )
 
     ur = GEOD.fwd(
         end_circle[0],
         end_circle[1],
         np.rad2deg(np.angle(np.exp(1j * (angle_rad - np.pi / 2)))),
-        width.to("m").magnitude / 2,
+        width / 2,
     )
     ul = GEOD.fwd(
         end_circle[0],
         end_circle[1],
         np.rad2deg(np.angle(np.exp(1j * (angle_rad + np.pi / 2)))),
-        width.to("m").magnitude / 2,
+        width / 2,
     )
 
     # Start points
@@ -300,15 +296,15 @@ def racetrack_latlon(
 
     # Go around first semi-circle
     circ_pnts = int(np.floor(((npts - 1) - 2 * leg_pnts) / 2))
-    da = 180 * ureg.degree / (circ_pnts + 1)
+    da = 180 / (circ_pnts + 1)
     for i in range(1, circ_pnts + 1):
-        ang = angle.to("degree") + 90 * ureg.degree - da * i
-        ang = np.rad2deg(np.angle(np.exp(1j * ang.to("radians").magnitude)))
+        ang = angle + 90 - da * i
+        ang = (ang + 180) % 360 - 180
         pnt = GEOD.fwd(
             end_circle[0],
             end_circle[1],
             ang,
-            width_m / 2,
+            width / 2,
         )
         pnts.append((pnt[1], pnt[0]))
 
@@ -324,13 +320,13 @@ def racetrack_latlon(
 
     # End semi-circle
     for i in range(1, circ_pnts + 1):
-        ang = angle.to("degree") - 90 * ureg.degree - da * i
-        ang = np.rad2deg(np.angle(np.exp(1j * ang.to("radians").magnitude)))
+        ang = angle - 90 - da * i
+        ang = (ang + 180) % 360 - 180
         pnt = GEOD.fwd(
             start_circle[0],
             start_circle[1],
             ang,
-            width_m / 2,
+            width / 2,
         )
         pnts.append((pnt[1], pnt[0]))
 
@@ -341,13 +337,14 @@ def racetrack_latlon(
     return pnts
 
 
+@ureg.wraps(None, (ureg.degree, ureg.degree, ureg.m / ureg.s, ureg.s, ureg.Hz, ureg.degree))
 def heading_latlon(
-    starting_lat: Quantity,
-    starting_lon: Quantity,
-    speed: Quantity,
-    duration: Quantity,
-    sample_rate: Quantity,
-    azimuth: Quantity = 0 * ureg.degree,
+    starting_lat: Quantity | float,
+    starting_lon: Quantity | float,
+    speed: Quantity | float,
+    duration: Quantity | float,
+    sample_rate: Quantity | float,
+    azimuth: Quantity | float = 0 * ureg.degree,
 ) -> list[tuple]:
     """Generate lat,lon points for specific azimuth heading.
 
@@ -371,19 +368,14 @@ def heading_latlon(
     list[tuple] : List of lat,lon pairs.
     """
     # Get sample distance and total points
-    delta = (speed / sample_rate).to("m").magnitude
+    delta = speed / sample_rate
     npoints = int(duration * sample_rate) + 1
-
-    # Convert to degrees
-    az_deg = azimuth.to("degree").magnitude
-    latdeg = starting_lat.to("degree").magnitude
-    londeg = starting_lon.to("degree").magnitude
 
     # Call fwd and include initial and terminal points
     res = GEOD.fwd_intermediate(
-        londeg,
-        latdeg,
-        az_deg,
+        starting_lon,
+        starting_lat,
+        azimuth,
         npoints,
         delta,
         initial_idx=0,

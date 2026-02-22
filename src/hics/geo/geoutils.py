@@ -1,12 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import dask.array as da
 import numpy as np
 import xarray as xr
-from loguru import logger
 
-from .. import ureg
-from ..hics import HCS
 from .dem import DEM
 from .transforms import GEOD
+
+if TYPE_CHECKING:
+    from ..hics import HCS
 
 
 def determine_num_samples(

@@ -2,22 +2,55 @@ import os
 from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
-from loguru import logger
+from platformdirs import user_data_dir
 
-# Load .env
-load_dotenv(find_dotenv())
+# Optional: Still support .env if they HAVE one, but don't require it
+load_dotenv(find_dotenv(), override=False)
+
+APP_NAME = "hics"
 
 
 class _DEMSettings:
-    DEM_FOLDER: Path = Path(os.getenv("DEM_FOLDER"))
-    NLCD_FILE: Path = Path(os.getenv("NLCD_FILE"))
-    NLCDLEG_FILE: Path = Path(os.getenv("NLCDLEG_FILE"))
+    def __init__(self):
+        self._base_data_dir = Path(user_data_dir(APP_NAME, appauthor=False))
+        self._dem_folder = None
+        self._nlcdleg_folder = None
+
+    def _get_path(self, env_key: str, folder_name: str) -> Path:
+        # 1. Check for Environment Variable first (Priority for Shared Drives)
+        env_val = os.getenv(env_key)
+        if env_val:
+            return Path(env_val)
+
+        # 2. Otherwise, use the standard OS data directory
+        return self._base_data_dir / folder_name
+
+    @property
+    def DEM_FOLDER(self) -> Path:
+        if self._dem_folder is None:
+            self._dem_folder = self._get_path("HICS_DEM_FOLDER", "terrain")
+        return self._dem_folder
+
+    @DEM_FOLDER.setter
+    def DEM_FOLDER(self, path: str | Path) -> None:
+        self._dem_folder = Path(path)
+
+    @property
+    def NLCDLEG_FOLDER(self) -> Path:
+        if self._nlcdleg_folder is None:
+            self._nlcdleg_folder = self._get_path("HICS_NLCDLEG_FOLDER", "legends")
+        return self._nlcdleg_folder
+
+    @NLCDLEG_FOLDER.setter
+    def NLCDLEG_FOLDER(self, path: str | Path) -> None:
+        self._nlcdleg_folder = Path(path)
 
 
 DEM_SETTINGS = _DEMSettings()
-# Create folder if needed
-try:
+
+
+# Lazy directory creation: only create when we actually try to load data
+def initialize_folders() -> None:
+    """Initialize folders if needed."""
     DEM_SETTINGS.DEM_FOLDER.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Directory {DEM_SETTINGS.DEM_FOLDER} created succesfully.")
-except OSError as error:
-    logger.exception(f"Directory {DEM_SETTINGS.DEM_FOLDER} cannot be created: {error}")
+    DEM_SETTINGS.NLCDLEG_FOLDER.mkdir(parents=True, exist_ok=True)
