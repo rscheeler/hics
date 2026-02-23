@@ -91,48 +91,49 @@ dataset_mappings = {
     },
 }
 # Define the physical properties for our Master Categories
+# Clutter height and ITM Ground type reference: https://www.pathloss.com/webhelp/terrain_data/terdat_clutter_clutdef.html
 MAIN_PROPS = {
     "WATER": {
         "Clutter Height (m)": 0.1,
         "ITM Ground Type": "fresh_water",
         "Relative Permittivity": 81,
         "Conductivity (S/m)": 0.01,
-        "RMS Slope (m)": 0.07,
+        "RMS Slope": 0.07,
     },
     "FOREST": {
         "Clutter Height (m)": 15.0,
         "ITM Ground Type": "average",
         "Relative Permittivity": 15,
         "Conductivity (S/m)": 0.005,
-        "RMS Slope (m)": 0.35,
+        "RMS Slope": 0.35,
     },
     "URBAN": {
         "Clutter Height (m)": 10.0,
         "ITM Ground Type": "average",
         "Relative Permittivity": 15,
         "Conductivity (S/m)": 0.005,
-        "RMS Slope (m)": 0.35,
+        "RMS Slope": 0.35,
     },
     "WETLAND": {
         "Clutter Height (m)": 5.0,
         "ITM Ground Type": "good",
         "Relative Permittivity": 25,
         "Conductivity (S/m)": 0.02,
-        "RMS Slope (m)": 0.19,
+        "RMS Slope": 0.19,
     },
     "OPEN_LOW": {
         "Clutter Height (m)": 0.5,
         "ITM Ground Type": "average",
         "Relative Permittivity": 15,
         "Conductivity (S/m)": 0.005,
-        "RMS Slope (m)": 0.21,
+        "RMS Slope": 0.21,
     },
     "BARREN": {
         "Clutter Height (m)": 0.1,
         "ITM Ground Type": "poor",
         "Relative Permittivity": 4,
         "Conductivity (S/m)": 0.001,
-        "RMS Slope (m)": 0.20,
+        "RMS Slope": 0.20,
     },
 }
 

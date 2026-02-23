@@ -175,14 +175,25 @@ class _DEM(Singleton):
         max_val = df["Value"].max()
         clutter_h = np.zeros(max_val + 1)
         nlcd_color = [(0, 0, 0, 0)] * (max_val + 1)
-
+        sigma = np.zeros(max_val + 1)
+        er = np.zeros(max_val + 1)
+        rms_slope = np.zeros(max_val + 1)
         for _, row in df.iterrows():
             idx = int(row["Value"])
             clutter_h[idx] = row.get("Clutter Height (m)", 0.0)
             nlcd_color[idx] = row["rgbint"]
+            sigma[idx] = row["Conductivity (S/m)"]
+            er[idx] = row["Relative Permittivity"]
+            rms_slope[idx] = row["RMS Slope"]
 
         self._nlcd_leg = df
-        self._lookup_tables = {"clutter_h": clutter_h, "colors": nlcd_color}
+        self._lookup_tables = {
+            "clutter_h": clutter_h,
+            "colors": nlcd_color,
+            "sigma": sigma,
+            "er": er,
+            "rms_slope": rms_slope,
+        }
 
     @property
     def nlcd_legend(self):
@@ -198,6 +209,21 @@ class _DEM(Singleton):
     def idx_colors(self):
         self._ensure_legend_loaded()
         return self._lookup_tables["colors"]
+
+    @property
+    def idx_er(self):
+        self._ensure_legend_loaded()
+        return self._lookup_tables["er"]
+
+    @property
+    def idx_sigma(self):
+        self._ensure_legend_loaded()
+        return self._lookup_tables["sigma"]
+
+    @property
+    def idx_rms_slope(self):
+        self._ensure_legend_loaded()
+        return self._lookup_tables["rms_slope"]
 
     def nlcdcat2clutterh(self, v):
         self._ensure_legend_loaded()
