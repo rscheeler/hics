@@ -9,8 +9,6 @@ from pint import Quantity
 from pyproj import Geod, Transformer
 
 from .. import ureg
-from ..utils import kw2da
-from .dem import DEM
 
 GEOD = Geod(ellps="WGS84")
 
@@ -29,6 +27,10 @@ class XRCRSTransformer:
     https://en.wikipedia.org/wiki/World_Geodetic_System
     https://en.wikipedia.org/wiki/EPSG_Geodetic_Parameter_Dataset
     """
+
+    # Class-level hooks to avoid circular imports
+    _hagl2amsl_func = None
+    _amsl2hagl_func = None
 
     def __init__(self, crs_from: Any, crs_to: Any, **kwargs) -> None:
         self.transformer = Transformer.from_crs(crs_from, crs_to, **kwargs)
@@ -97,7 +99,9 @@ class XRCRSTransformer:
 
         # Add ground height if correct source crs and flag specified
         if self.transformer.source_crs.to_epsg() == 4979 and hagl:
-            basemags[2] = hagl2amsl(np.deg2rad(basemags[0]), np.deg2rad(basemags[1]), basemags[2])
+            basemags[2] = self._hagl2amsl_func(
+                np.deg2rad(basemags[0]), np.deg2rad(basemags[1]), basemags[2]
+            )
 
         # Perform transform
         transdata = self.transformer.transform(*basemags)
@@ -110,7 +114,7 @@ class XRCRSTransformer:
 
         # Remove ground height if correct target crs and flag specified
         if self.transformer.target_crs.to_epsg() == 4979 and hagl:
-            transdata[2] = amsl2hagl(*transdata)
+            transdata[2] = self._amsl2hagl_func(*transdata)
 
         # Apply units on output
         if outunits:
@@ -153,35 +157,6 @@ class XRCRSTransformer:
         return transdata
 
 
-def hagl2amsl(*coords):
-    """
-    Convert height above ground level (HAGL) to height above mean sea level (AMSL).
-    Coords are lat:radian, lon:radian, hagl:meter
-    """
-    ll = kw2da(lat=coords[0], lon=coords[1])
-
-    gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
-
-    if coords[0].shape == ():
-        gndlevel = gndlevel.values.squeeze()
-    return coords[2] + gndlevel
-
-
-def amsl2hagl(*coords):
-    """Convert height above mean sea level (AMSL) to height above ground level (HAGL).
-    Coords are lat:radian, lon:radian, amsl:meter
-    """
-    ll = kw2da(lat=coords[0], lon=coords[1])
-    gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
-
-    if coords[0].shape == ():
-        gndlevel = gndlevel.values.squeeze()
-
-    return coords[2] - gndlevel
-
-
-llh2geocent = XRCRSTransformer("EPSG:4979", "EPSG:4978")
-geocent2llh = XRCRSTransformer("EPSG:4978", "EPSG:4979")
 latlong2geocent = XRCRSTransformer("EPSG:4326", "EPSG:4978")
 geocent2latlong = XRCRSTransformer("EPSG:4978", "EPSG:4326")
 

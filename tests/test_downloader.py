@@ -43,7 +43,7 @@ def test_download():
         coords=_POSITION_COORD_DICT,
     )
     # Use a course dataset
-    DEM.geo_asset = DEM_CATALOG.COP90
+    DEM.dem_asset = DEM_CATALOG.COP90
     cs_boulder = HCS.from_crs(
         (40.015 * ureg.degree, -105.270556 * ureg.degree, 20 * ureg.m), hagl=True
     )

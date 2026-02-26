@@ -11,7 +11,7 @@ from scipy.spatial.transform import Rotation
 from .. import ureg
 from ..datatypes import _QUATERNION_COORD_DICT, _QUATERNION_COORDS, _QUATERNION_DIM
 from ..utils import vector_norm
-from .transforms import XRCRSTransformer, hagl2amsl
+from .dem import XRCRSTransformer_Terrain, hagl2amsl
 
 if TYPE_CHECKING:
     from .. import HCS, ureg
@@ -66,8 +66,9 @@ def from_crs(
                 coords[i] = l.item()
 
     # Perform transform
-    togeocent = XRCRSTransformer(epsg, "EPSG:4978")
+    togeocent = XRCRSTransformer_Terrain(epsg, "EPSG:4978")
     pnt = togeocent.transform(*coords, to_da=True, hagl=hagl)
+
     # Form unit vectors by moving a very small distance along lat, lon, or h
     idxmap = togeocent.source_dims
     delta = [d * u for d, u in zip([1e-6, 1e-6, 0.01], togeocent.source_units, strict=False)]

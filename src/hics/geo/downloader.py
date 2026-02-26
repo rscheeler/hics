@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import asdict, dataclass
 from operator import itemgetter
 from pathlib import Path
@@ -537,7 +538,7 @@ async def _download_all(urls_dests: dict) -> None:
         await asyncio.gather(*tasks)
 
 
-def get_geospatial_data(
+async def get_geospatial_data(
     geo_asset: GeoAsset,
     points: list[tuple],
     stac_url: str = "https://planetarycomputer.microsoft.com/api/stac/v1",
@@ -630,8 +631,7 @@ def get_geospatial_data(
             actual_gsd = int(round(item_gsd)) if item_gsd is not None else geo_asset.gsd
 
             # Tile name
-            tile_name = item.properties.get("io:tile_id")
-
+            tile_name = re.sub(r"[- _]\d{4}$", "", item.id)
             remote_tile_groups.setdefault(tile_name, []).append(
                 {"item": item, "tile_name": tile_name, "date_int": date_int, "gsd": actual_gsd}
             )
@@ -711,7 +711,7 @@ def get_geospatial_data(
         downloaded_paths = []
         if files_to_download:
             logger.info(f"Downloading {len(files_to_download)} new/updated files...")
-            asyncio.run(_download_all(files_to_download))
+            await _download_all(files_to_download)
             downloaded_paths = [v for v in files_to_download.values()]
 
         # 3. Rebuild index (Essential to reflect deletions and new files)

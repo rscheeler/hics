@@ -29,7 +29,7 @@ from .utils import vector_norm
 
 if HAS_GEO_DEPS:
     from .geo.crs import from_crs
-    from .geo.transforms import amsl2hagl, geocent2llh
+    from .geo.dem import amsl2hagl, geocent2llh
 
 
 class HCSOrigin:

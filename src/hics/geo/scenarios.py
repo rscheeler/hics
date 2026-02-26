@@ -9,8 +9,8 @@ from scipy.spatial.transform import Rotation
 
 from .. import ureg
 from ..hics import GLOBAL_CS, HCS
-from .dem import DEM
-from .transforms import GEOD, llh2geocent
+from .dem import DEM, llh2geocent
+from .transforms import GEOD
 
 
 def interp_llpnts2hcs(

@@ -5,21 +5,26 @@ Automatically downloading terrain data from the national map.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
+import nest_asyncio
 import numpy as np
 import pandas as pd
 import xarray as xr
 from loguru import logger
+from odc.geo.geobox import GeoBox
+from odc.geo.xr import xr_reproject
 from pint import Quantity
 from rasterio.enums import Resampling
 from rioxarray import open_rasterio
 
-from ..utils import Singleton
+from ..utils import Singleton, kw2da
 from .config import DEM_SETTINGS
-from .downloader import DEM_CATALOG, GeoAsset, get_geospatial_data
+from .downloader import DEM_CATALOG, BoundingBox, GeoAsset, get_geospatial_data
 from .setup_assets import generate_rf_csv
+from .transforms import XRCRSTransformer
 
 # For linting
 if TYPE_CHECKING:
@@ -31,7 +36,8 @@ if TYPE_CHECKING:
 
 # Utility function to generate a VRT file
 def _generate_vrt(
-    vrt_path: Path, file_paths: list[Path], dst_crs: str, resample_alg: str = "nearest"
+    vrt_path: Path,
+    file_paths: list[Path],
 ):
     """
     Creates a reprojected VRT by first building a mosaic and then warping it.
@@ -41,28 +47,54 @@ def _generate_vrt(
         raise ValueError("Cannot build VRT with an empty list of files.")
 
     input_files = [str(p) for p in file_paths]
-    # We use a temporary VRT to hold the mosaic structure
-    temp_mosaic_vrt = vrt_path.with_suffix(".mosaic.vrt")
     from osgeo import gdal
 
     try:
-        # 1. Create a standard mosaic VRT on disk.
+        # Create a standard mosaic VRT on disk.
         # This writes the actual file paths into the XML.
-        gdal.BuildVRT(str(temp_mosaic_vrt), input_files)
+        ds = gdal.BuildVRT(str(vrt_path), input_files)
 
-        # 2. Warp the mosaic VRT to create the final reprojected VRT.
+        if ds is None:
+            raise RuntimeError("GDAL Warp failed.")
+
+        # Clean up: Close the dataset to flush to disk
+        ds = None
+        logger.info(f"VRT created: {vrt_path}")
+
+    except Exception as e:
+        logger.error(f"VRT generation failed: {e}")
+        raise
+
+
+def _generate_warpedvrt(
+    vrt_path: Path,
+    file_paths: list[Path],
+    dst_crs: str,
+    resampling: str = "near",
+):
+    """
+    Creates a reprojected VRT by first building a mosaic and then warping it.
+    This ensures all tiles are included and the projection is correct.
+    """
+    if not file_paths:
+        raise ValueError("Cannot build VRT with an empty list of files.")
+
+    input_files = [str(p) for p in file_paths]
+    from osgeo import gdal
+
+    try:
+        # Warp the mosaic VRT to create the final reprojected VRT.
         # This will now reference temp_mosaic_vrt by path, not memory handle.
         options = gdal.WarpOptions(
             format="VRT",
             dstSRS=dst_crs,
-            resampleAlg="nearest",
+            resampleAlg=resampling,
             outputBounds=None,
             multithread=True,
             errorThreshold=0,  # Disable coordinate approximation
-            warpOptions=["SRC_METHOD=NO_GEOTRANSFORM"],  # Ensure pixel center alignment
         )
 
-        ds = gdal.Warp(str(vrt_path), str(temp_mosaic_vrt), options=options)
+        ds = gdal.Warp(str(vrt_path), input_files, options=options)
 
         if ds is None:
             raise RuntimeError("GDAL Warp failed.")
@@ -72,13 +104,40 @@ def _generate_vrt(
         logger.info(f"VRT created: {vrt_path}")
 
     except Exception as e:
-        logger.error(f"VRT generation failed: {e}")
+        logger.error(f"Warped VRT generation failed: {e}")
         raise
 
 
 def load_geotiffs(
-    geotiffs, vrt_suffix, dst_crs, minmax_latlon=None, resampling: Resampling | None = None
-):
+    geotiffs: list,
+    vrt_suffix: str,
+    dst_crs: str,
+    bbox: BoundingBox,
+    resampling: Resampling = Resampling.nearest,
+) -> xr.DataArray:
+    """
+    Create VRT and load, reproject to dst_crs, and clip if needed
+    Results in a lazy loaded DataArray.
+
+    Parameters
+    ----------
+    geotiffs : list
+        List of geotiff paths
+    vrt_suffix : str
+        Suffix for VRT file
+    dst_crs : str
+        Destination coordinate system
+    bbox : BoundingBox
+        Bounding box for clipping in dst_crs
+    resampling : Resampling | None, optional
+        Method for resampling, by default nearest
+
+
+    Returns:
+    -------
+    data : xr.DataArray
+        Lazy loaded, clipped, and re-projected Geotiff data
+    """
     if resampling is None:
         resampling = Resampling.nearest
 
@@ -95,7 +154,7 @@ def load_geotiffs(
         # Multiple tiles: build a VRT for lazy merging
         # Use same vrt file for everything and just overwrite
         # Generate VRT
-        _generate_vrt(vrt_file, geotiffs, dst_crs, resample_alg=resampling.name.lower())
+        _generate_vrt(vrt_file, geotiffs)
 
         # Open the VRT file for lazy reading
         data = open_rasterio(vrt_file, masked=True, chunks=chunks_dict)
@@ -107,48 +166,76 @@ def load_geotiffs(
         data_arrays = [open_rasterio(f, chunks=chunks_dict) for f in geotiffs]
         # Merge
         data = merge_arrays(data_arrays)
-        # Reproject if needed
-        if data.rio.crs != dst_crs:
-            logger.info(f"Reprojecting clipped area to EPSG:4326 using {resampling.name}")
-            data = data.rio.reproject("EPSG:4326", resampling=resampling)
-    # Clip
-    if minmax_latlon is not None:
-        data = data.rio.clip_box(
-            minx=minmax_latlon[0][0],
-            miny=minmax_latlon[1][0],
-            maxx=minmax_latlon[0][1],
-            maxy=minmax_latlon[1][1],
+
+    _PAD = 0.01
+    # Clip and Re-project if needed
+    if data.rio.crs != dst_crs:
+        logger.info(f"Reprojecting clipped area to {dst_crs} using {resampling.name}")
+        # Get resolution, assume if greater than 0.1 it's in meters and convert to degrees
+        res = abs(data.rio.resolution()[0])
+        if res > 0.1:
+            # Assume in meters and convert to degrees
+            res /= 111139.0
+        logger.debug(f"{vrt_file} res: {res}")
+        dst_geobox = GeoBox.from_bbox(
+            (bbox.min_lon - _PAD, bbox.min_lat - _PAD, bbox.max_lon + _PAD, bbox.max_lat + _PAD),
             crs=dst_crs,
+            resolution=res,
+            tight=False,
         )
 
-    # Rename dimensions
-    data = data.rename({"x": "lon", "y": "lat"})
+        data = xr_reproject(
+            data,
+            how=dst_geobox,
+            resampling=resampling.name,
+        )
+        # Rename dimensions
+        data = data.rename({"longitude": "lon", "latitude": "lat"})
 
+    else:
+        data = data.rio.clip_box(
+            minx=bbox.min_lon - _PAD,
+            miny=bbox.min_lat - _PAD,
+            maxx=bbox.min_lon + _PAD,
+            maxy=bbox.min_lat + _PAD,
+            crs=dst_crs,
+        )
+        # Rename dimensions
+        data = data.rename({"x": "lon", "y": "lat"})
+    data.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+    # Drop dims
+    data = data.squeeze("band", drop=True)
+
+    # Convert to base units
     # Change degrees to radians
     data = data.assign_coords(lat=np.deg2rad(data.lat))
     data = data.assign_coords(lon=np.deg2rad(data.lon))
-    # Drop dims
-    data = data.squeeze("band", drop=True)
-    # Ensure data is float64
-    data = data.astype(np.float64)
+
+    # Ensure ascending data for slice
+    data = data.sortby("lat", ascending=True)
+    data = data.sortby("lon", ascending=True)
 
     return data
 
 
-class _DEM(Singleton):
-    """Container class for digital elevation model (DEM) data."""
+class _Terrain(Singleton):
+    """Container class for terrain data.
+    Contains both digital elevation model (DEM) and land cover data.
+    """
 
     def __init__(
         self,
-        geo_asset: GeoAsset = DEM_CATALOG.USGS30,
+        dem_asset: GeoAsset = DEM_CATALOG.USGS30,
         lc_asset: GeoAsset = DEM_CATALOG.LULCv02,
-        local_only: bool = True,
+        local_only: bool = False,
     ) -> None:
         # Initialize internal data caches to None for lazy loading
-        self._data = None
+        self._dem = None
         self._nlcd = None
+        self._dem_asset = None
+        self._lc_asset = None
         self.local_only = local_only
-        self.geo_asset = geo_asset
+        self.dem_asset = dem_asset
         self.lc_asset = lc_asset
         # Lazy-loaded legend attributes
         self._nlcd_leg = None
@@ -196,6 +283,26 @@ class _DEM(Singleton):
         }
 
     @property
+    def dem_asset(self):
+        return self._dem_asset
+
+    @dem_asset.setter
+    def dem_asset(self, value: GeoAsset):
+        self._dem_asset = value
+        self._dem = None
+
+    @property
+    def lc_asset(self):
+        return self._lc_asset
+
+    @lc_asset.setter
+    def lc_asset(self, value: GeoAsset):
+        self._lc_asset = value
+        self._nlcd = None
+        self._nlcd_leg = None
+        self._lookup_tables = {}
+
+    @property
     def nlcd_legend(self):
         self._ensure_legend_loaded()
         return self._nlcd_leg
@@ -233,13 +340,13 @@ class _DEM(Singleton):
         return self.idx_colors[int(v)]
 
     @property
-    def data(self) -> xr.DataArray:
-        """GeoTiff data as xr.DataArray."""
-        if self._data is None:
+    def dem(self) -> xr.DataArray:
+        """DEM data as xr.DataArray."""
+        if self._dem is None:
             raise ValueError(
-                "DEM data has not been loaded. Call load() first, or use an interpolation method."
+                "DEM data not loaded. Call load_dem() first, or use an interpolation method."
             )
-        return self._data
+        return self._dem
 
     @property
     def nlcd(self) -> xr.DataArray:
@@ -267,17 +374,7 @@ class _DEM(Singleton):
         clutter_h.data = self.idx_clutter_h[nlcd.values.astype(int)]
         return clutter_h
 
-    @property
-    def geotiffs(self):
-        """GeoTiff file paths."""
-        return self._geotiffs
-
-    @property
-    def lcgeotiffs(self):
-        """Land cover GeoTiff file paths."""
-        return self._lcgeotiffs
-
-    def load(self, points: list) -> None:
+    def _loadgeotiff(self, points: list, asset: GeoAsset, vrt_suffix: str) -> None:
         """
         Downloads GeoTIFF data from the lat,lon tuples if needed, generates mosaic, and loads into
         memory.
@@ -289,27 +386,33 @@ class _DEM(Singleton):
         points : list of tuples
             Contains lat/lon points: [(lat0,lon0), (lat1,lon1),...,(latN,lonN)]
         """
-        self._geotiffs = get_geospatial_data(self.geo_asset, points, local_only=self.local_only)
-        self._lcgeotiffs = get_geospatial_data(self.lc_asset, points, local_only=self.local_only)
-        if self.geotiffs is not None:
-            logger.info(f"Loading geotiffs: {self.geotiffs}")
+        # Allow the loop to be nested - needed for compatibility with Jupyter
+        nest_asyncio.apply()
+        # Get the existing loop
+        loop = asyncio.get_event_loop()
 
-            self._data = load_geotiffs(self.geotiffs, "dem", "EPSG:4269")
+        geotiffs = loop.run_until_complete(
+            get_geospatial_data(asset, points, local_only=self.local_only)
+        )
 
-        if self.lcgeotiffs is not None:
-            logger.info(f"Loading land cover geotiffs: {self.lcgeotiffs}")
-            min_lat = np.rad2deg(self.data.lat.min())
-            max_lat = np.rad2deg(self.data.lat.max())
-            min_lon = np.rad2deg(self.data.lon.min())
-            max_lon = np.rad2deg(self.data.lon.max())
-            self._nlcd = load_geotiffs(
-                self.lcgeotiffs,
-                "lc",
-                "EPSG:4326",
-                [(min_lon, max_lon), (min_lat, max_lat)],
-            )
-            # Flip y to be increasing
-            self._nlcd = self._nlcd.isel(lat=slice(None, None, -1))
+        bbox = BoundingBox(points)
+        # Load geotiff data
+        if geotiffs is not None:
+            logger.info(f"Loading {vrt_suffix} geotiffs: {geotiffs}")
+            data = load_geotiffs(geotiffs, vrt_suffix, "EPSG:4326", bbox)
+        else:
+            data = None
+        return data
+
+    def load_dem(self, points: list) -> None:
+        self._dem = self._loadgeotiff(points, self.dem_asset, "dem")
+
+    def load_lc(self, points: list) -> None:
+        self._nlcd = self._loadgeotiff(points, self.lc_asset, "lc")
+
+    def load(self, points: list) -> None:
+        self.load_dem(points)
+        self.load_lc(points)
 
     def interp(
         self, lat: xr.DataArray | None = None, lon: xr.DataArray | None = None, **kwargs
@@ -327,9 +430,9 @@ class _DEM(Singleton):
 
         # Use bounds_error kwarg on scipy.interp to raise an error if extrapolating
         try:
-            interp_dat = self.data.interp(
+            interp_dat = self.dem.interp(
                 lat=lats, lon=lons, **kwargs, kwargs=dict(bounds_error=True)
-            )
+            ).compute()
         except ValueError:
             # Catch the error and load in data based off of points
             # Create lat,lon point list
@@ -349,10 +452,10 @@ class _DEM(Singleton):
             ]
 
             # Load geotiff
-            self.load(points)
+            self.load_dem(points)
 
             # Interpolate
-            interp_dat = self.data.interp(lat=lats, lon=lons, **kwargs)
+            interp_dat = self.dem.interp(lat=lats, lon=lons, **kwargs)
 
         return interp_dat
 
@@ -381,7 +484,7 @@ class _DEM(Singleton):
                 method="nearest",
                 **kwargs,
                 kwargs=dict(bounds_error=True, fill_value=0),
-            )
+            ).compute()
 
         except ValueError:
             # Catch the error and load in data based off of points
@@ -402,7 +505,7 @@ class _DEM(Singleton):
             ]
 
             # Load NLCD
-            self.load(points)
+            self.load_lc(points)
 
             # Interpolate
             interp_dat = self.nlcd.interp(
@@ -428,4 +531,43 @@ class _DEM(Singleton):
 
 
 # Initialize DEMs
-DEM = _DEM()
+DEM = _Terrain()
+
+
+def hagl2amsl(*coords):
+    """
+    Convert height above ground level (HAGL) to height above mean sea level (AMSL).
+    Coords are lat:radian, lon:radian, hagl:meter.
+    """
+    ll = kw2da(lat=coords[0], lon=coords[1])
+
+    gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
+
+    if coords[0].shape == ():
+        gndlevel = gndlevel.values.squeeze()
+    return coords[2] + gndlevel
+
+
+def amsl2hagl(*coords):
+    """Convert height above mean sea level (AMSL) to height above ground level (HAGL).
+    Coords are lat:radian, lon:radian, amsl:meter.
+    """
+    ll = kw2da(lat=coords[0], lon=coords[1])
+    gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
+
+    if coords[0].shape == ():
+        gndlevel = gndlevel.values.squeeze()
+
+    return coords[2] - gndlevel
+
+
+# Inject methods for terrain transforms
+class XRCRSTransformer_Terrain(XRCRSTransformer):
+    def __init__(self, crs_from, crs_to, **kwargs):
+        super().__init__(crs_from, crs_to, **kwargs)
+        self._amsl2hagl_func = amsl2hagl
+        self._hagl2amsl_func = hagl2amsl
+
+
+llh2geocent = XRCRSTransformer_Terrain("EPSG:4979", "EPSG:4978")
+geocent2llh = XRCRSTransformer_Terrain("EPSG:4978", "EPSG:4979")

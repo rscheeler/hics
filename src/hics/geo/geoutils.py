@@ -215,10 +215,7 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
 def compute_if_dask(x):
     """Computes a dask array/quantity, otherwise returns the input."""
     # Check if the object itself is a pint Quantity with dask data
-    if hasattr(x, "data") and isinstance(x.data, da.Array):
-        return x.compute()
-    # Check if the object is a raw dask array
-    elif isinstance(x, da.Array):
+    if hasattr(x, "compute"):
         return x.compute()
     else:
         # It's a numpy array, a pint Quantity with numpy data, etc.
