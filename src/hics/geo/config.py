@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
+from loguru import logger
 from platformdirs import user_data_dir
 
 # Optional: Still support .env if they HAVE one, but don't require it
@@ -15,6 +16,7 @@ class _DEMSettings:
         self._base_data_dir = Path(user_data_dir(APP_NAME, appauthor=False))
         self._dem_folder = None
         self._nlcdleg_folder = None
+        self.initialize_folders()
 
     def _get_path(self, env_key: str, folder_name: str) -> Path:
         # 1. Check for Environment Variable first (Priority for Shared Drives)
@@ -24,6 +26,14 @@ class _DEMSettings:
 
         # 2. Otherwise, use the standard OS data directory
         return self._base_data_dir / folder_name
+
+    def initialize_folders(self) -> None:
+        """Initialize folders if needed."""
+        try:
+            self.DEM_FOLDER.mkdir(parents=True, exist_ok=True)
+            self.NLCDLEG_FOLDER.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            logger.exception(f"Directories cannot be created: {error}")
 
     @property
     def DEM_FOLDER(self) -> Path:
@@ -47,10 +57,3 @@ class _DEMSettings:
 
 
 DEM_SETTINGS = _DEMSettings()
-
-
-# Lazy directory creation: only create when we actually try to load data
-def initialize_folders() -> None:
-    """Initialize folders if needed."""
-    DEM_SETTINGS.DEM_FOLDER.mkdir(parents=True, exist_ok=True)
-    DEM_SETTINGS.NLCDLEG_FOLDER.mkdir(parents=True, exist_ok=True)
