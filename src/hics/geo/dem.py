@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 def _generate_vrt(
     vrt_path: Path,
     file_paths: list[Path],
-):
+) -> None:
     """
     Creates a reprojected VRT by first building a mosaic and then warping it.
     This ensures all tiles are included and the projection is correct.
@@ -69,7 +69,7 @@ def _generate_warpedvrt(
     file_paths: list[Path],
     dst_crs: str,
     resampling: str = "near",
-):
+) -> None:
     """
     Creates a reprojected VRT by first building a mosaic and then warping it.
     This ensures all tiles are included and the projection is correct.
@@ -239,7 +239,7 @@ class _Terrain(Singleton):
         self._nlcd_leg = None
         self._lookup_tables = {}
 
-    def _ensure_legend_loaded(self):
+    def _ensure_legend_loaded(self) -> None:
         """Lazy-loads the NLCD legend and builds lookup tables only when needed."""
         if self._nlcd_leg is not None:
             return
@@ -258,14 +258,14 @@ class _Terrain(Singleton):
 
         # Build Lookup Tables (LUTs) based on max NLCD value
         max_val = df["Value"].max()
-        clutter_h = np.zeros(max_val + 1)
+        lc_h = np.zeros(max_val + 1)
         nlcd_color = [(0, 0, 0, 0)] * (max_val + 1)
         sigma = np.zeros(max_val + 1)
         er = np.zeros(max_val + 1)
         rms_slope = np.zeros(max_val + 1)
         for _, row in df.iterrows():
             idx = int(row["Value"])
-            clutter_h[idx] = row.get("Clutter Height (m)", 0.0)
+            lc_h[idx] = row.get("Land Cover Height (m)", 0.0)
             nlcd_color[idx] = row["rgbint"]
             sigma[idx] = row["Conductivity (S/m)"]
             er[idx] = row["Relative Permittivity"]
@@ -273,7 +273,7 @@ class _Terrain(Singleton):
 
         self._nlcd_leg = df
         self._lookup_tables = {
-            "clutter_h": clutter_h,
+            "lc_h": lc_h,
             "colors": nlcd_color,
             "sigma": sigma,
             "er": er,
@@ -281,60 +281,60 @@ class _Terrain(Singleton):
         }
 
     @property
-    def dem_asset(self):
+    def dem_asset(self) -> GeoAsset:
         return self._dem_asset
 
     @dem_asset.setter
-    def dem_asset(self, value: GeoAsset):
+    def dem_asset(self, value: GeoAsset) -> None:
         self._dem_asset = value
         self._dem = None
 
     @property
-    def lc_asset(self):
+    def lc_asset(self) -> GeoAsset:
         return self._lc_asset
 
     @lc_asset.setter
-    def lc_asset(self, value: GeoAsset):
+    def lc_asset(self, value: GeoAsset) -> None:
         self._lc_asset = value
         self._nlcd = None
         self._nlcd_leg = None
         self._lookup_tables = {}
 
     @property
-    def nlcd_legend(self):
+    def nlcd_legend(self) -> pd.DataFrame:
         self._ensure_legend_loaded()
         return self._nlcd_leg
 
     @property
-    def idx_clutter_h(self):
+    def idx_lc_h(self) -> list[float]:
         self._ensure_legend_loaded()
-        return self._lookup_tables["clutter_h"]
+        return self._lookup_tables["lc_h"]
 
     @property
-    def idx_colors(self):
+    def idx_colors(self) -> list[tuple[float]]:
         self._ensure_legend_loaded()
         return self._lookup_tables["colors"]
 
     @property
-    def idx_er(self):
+    def idx_er(self) -> list[float]:
         self._ensure_legend_loaded()
         return self._lookup_tables["er"]
 
     @property
-    def idx_sigma(self):
+    def idx_sigma(self) -> list[float]:
         self._ensure_legend_loaded()
         return self._lookup_tables["sigma"]
 
     @property
-    def idx_rms_slope(self):
+    def idx_rms_slope(self) -> list[float]:
         self._ensure_legend_loaded()
         return self._lookup_tables["rms_slope"]
 
-    def nlcdcat2clutterh(self, v):
+    def nlcdcat2landcoverh(self, v: int) -> float:
         self._ensure_legend_loaded()
-        return self.idx_clutter_h[int(v)]
+        return self.idx_lc_h[int(v)]
 
-    def nlcdcat2color(self, v):
+    def nlcdcat2color(self, v: int) -> tuple[float]:
         return self.idx_colors[int(v)]
 
     @property
@@ -348,16 +348,16 @@ class _Terrain(Singleton):
 
     @property
     def nlcd(self) -> xr.DataArray:
-        """Land clutter data."""
+        """Land cover data."""
         if self._nlcd is None:
             raise ValueError(
                 "NLCD data not loaded. Call load_nlcd() first, or use an interpolation method."
             )
         return self._nlcd
 
-    def clutterh(self, nlcd: xr.DataArray) -> xr.DataArray:
+    def landcoverh(self, nlcd: xr.DataArray) -> xr.DataArray:
         """
-        Get clutter height from land cover mapping.
+        Get land cover height from land cover mapping.
 
         Parameters
         ----------
@@ -366,11 +366,11 @@ class _Terrain(Singleton):
 
         Returns:
         -------
-        Clutter height from the legend file: xr.DataArray
+        Land cover height from the legend file: xr.DataArray
         """
-        clutter_h = xr.full_like(nlcd, 1.0)
-        clutter_h.data = self.idx_clutter_h[nlcd.values.astype(int)]
-        return clutter_h
+        lc_h = xr.full_like(nlcd, 1.0)
+        lc_h.data = self.idx_lc_h[nlcd.values.astype(int)]
+        return lc_h
 
     def _loadgeotiff(self, points: list, asset: GeoAsset, vrt_suffix: str) -> None:
         """
@@ -413,7 +413,7 @@ class _Terrain(Singleton):
         self.load_lc(points)
 
     def interp(
-        self, lat: xr.DataArray | None = None, lon: xr.DataArray | None = None, **kwargs
+        self, lat: xr.DataArray | None = None, lon: xr.DataArray | None = None, **kwargs: Any
     ) -> xr.DataArray:
         """
         Interpolates the loaded geotiff data. Wraps xr.DataArray.interp.
@@ -461,7 +461,7 @@ class _Terrain(Singleton):
         self,
         lat: xr.DataArray | None = None,
         lon: xr.DataArray | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> xr.DataArray:
         """
         Interpolates the loaded geotiff data. Wraps xr.DataArray.interp.
@@ -512,20 +512,20 @@ class _Terrain(Singleton):
 
         return interp_dat
 
-    def interp_clutter(
+    def interp_landcover(
         self,
         lat: xr.DataArray | None = None,
         lon: xr.DataArray | None = None,
-        **kwargs,
-    ) -> xr.DataArray:
+        **kwargs: Any,
+    ) -> tuple[xr.DataArray]:
         nlcd = self.interp_nlcd(lat=lat, lon=lon, **kwargs)
-        clutterh = self.clutterh(nlcd)
+        lch = self.landcoverh(nlcd)
 
         # Mask first and last five points to help with ITM interpolation
-        clutterh.loc[dict(distance=clutterh.distance[:5])] = 0
-        clutterh.loc[dict(distance=clutterh.distance[-5:])] = 0
+        lch.loc[dict(distance=lch.distance[:5])] = 0
+        lch.loc[dict(distance=lch.distance[-5:])] = 0
 
-        return clutterh, nlcd
+        return lch, nlcd
 
 
 # Initialize DEMs

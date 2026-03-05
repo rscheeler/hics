@@ -109,8 +109,8 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
     """
     # Iterate over input DataArray
     surface_profiles = []
-    clutter_profiles = []
-    clutter_nlcds = []
+    lc_profiles = []
+    lc_nlcds = []
     for i, (*line_data, txamsl, txagl, rxamsl, rxagl) in enumerate(
         zip(
             *line,
@@ -147,13 +147,13 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
 
         # Sample elevation profile by using DataArray interpolate
         surface_profile = DEM.interp(lat=lats, lon=lons)
-        clutter_profile, clutter_nlcd = DEM.interp_clutter(lat=lats, lon=lons)
+        lc_profile, lc_nlcd = DEM.interp_landcover(lat=lats, lon=lons)
         surface_profile = compute_if_dask(surface_profile)
-        clutter_profile = compute_if_dask(clutter_profile)
-        clutter_nlcd = compute_if_dask(clutter_nlcd)
+        lc_profile = compute_if_dask(lc_profile)
+        lc_nlcd = compute_if_dask(lc_nlcd)
         # Add units
         surface_profile.data = surface_profile.data
-        clutter_profile.data = clutter_profile.data + surface_profile.data
+        lc_profile.data = lc_profile.data + surface_profile.data
 
         # Add units for distance
         dist = surface_profile.distance
@@ -168,18 +168,18 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
         )
         surface_profile.attrs = {**surface_profile.attrs, **attrs}
         attrs = dict(
-            long_name="Clutter Profile",
-            description="Clutter Surface Profile",
+            long_name="Land Cover Profile",
+            description="Land Cover Surface Profile",
             distance_km=distance_km,
         )
-        clutter_profile.attrs = {**clutter_profile.attrs, **attrs}
+        lc_profile.attrs = {**lc_profile.attrs, **attrs}
         attrs = dict(
-            long_name="Clutter Class", description="Clutter Class", distance_km=distance_km
+            long_name="Land Cover Class", description="Land Cover Class", distance_km=distance_km
         )
-        clutter_nlcd.attrs = {**clutter_nlcd.attrs, **attrs}
+        lc_nlcd.attrs = {**lc_nlcd.attrs, **attrs}
         surface_profiles.append(surface_profile)
-        clutter_profiles.append(clutter_profile)
-        clutter_nlcds.append(clutter_nlcd)
+        lc_profiles.append(lc_profile)
+        lc_nlcds.append(lc_nlcd)
 
     # Create DataArray if data has shape
     if line[0].shape != ():
@@ -188,26 +188,26 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
             dims=line[0].dims,
             coords=line[0].coords,
         )
-        clutter_profile = xr.DataArray(
-            np.array(clutter_profiles, dtype="object").reshape(line[0].shape),
+        lc_profile = xr.DataArray(
+            np.array(lc_profiles, dtype="object").reshape(line[0].shape),
             dims=line[0].dims,
             coords=line[0].coords,
         )
-        clutter_nlcd = xr.DataArray(
-            np.array(clutter_nlcds, dtype="object").reshape(line[0].shape),
+        lc_nlcd = xr.DataArray(
+            np.array(lc_nlcds, dtype="object").reshape(line[0].shape),
             dims=line[0].dims,
             coords=line[0].coords,
         )
     else:
         surface_profile = surface_profiles[-1]
-        clutter_profile = clutter_profiles[-1]
-        clutter_nlcd = clutter_nlcds[-1]
+        lc_profile = lc_profiles[-1]
+        lc_nlcd = lc_nlcds[-1]
 
     return xr.Dataset(
         dict(
             surface_profile=surface_profile,
-            clutter_profile=clutter_profile,
-            clutter_nlcd=clutter_nlcd,
+            lc_profile=lc_profile,
+            lc_nlcd=lc_nlcd,
         )
     )
 

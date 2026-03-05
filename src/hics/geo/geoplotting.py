@@ -66,12 +66,12 @@ def view_surface_profile(
     # Down-select if kwargs specified
     if len(kwargs) > 0:
         surface_profile = surface_profile.isel(**kwargs)
-        for s in ["surface_profile", "clutter_profile", "clutter_nlcd"]:
+        for s in ["surface_profile", "lc_profile", "lc_nlcd"]:
             surface_profile[s] = surface_profile[s].item()
 
     # Plot the surface line
     surface_profile.surface_profile.plot(color="k", label="Surface", ax=ax)
-    surface_profile.clutter_profile.plot(color="k", lw=1, ls=":", label="Clutter", ax=ax)
+    surface_profile.lc_profile.plot(color="k", lw=1, ls=":", label="Land Cover", ax=ax)
     if ax is None:
         ax = plt.gca()
 
@@ -90,12 +90,12 @@ def view_surface_profile(
         alpha=0.3,
     )
 
-    # Fill with land cover color between earth and the clutter
-    colors = nlcdcolor(surface_profile.clutter_nlcd.data)
+    # Fill with land cover color between earth and the land cover
+    colors = nlcdcolor(surface_profile.lc_nlcd.data)
     for i, c in zip(range(surface_profile.distance.size - 1), colors):
         ax.fill_between(
             surface_profile.distance[i : i + 2],
-            surface_profile.clutter_profile.data[i : i + 2],
+            surface_profile.lc_profile.data[i : i + 2],
             surface_profile.surface_profile.data[i : i + 2],
             step="mid",
             color=c,
@@ -124,9 +124,7 @@ def view_surface_profile(
     ax.plot(surface_profile.distance[0], surface_profile.txamsl, ".", mec="C0", mfc="C0")
     ax.plot(surface_profile.distance[-1], surface_profile.rxamsl, ".", mec="C0", mfc="C0")
     # Set plot aspect
-    aspect = (
-        (surface_profile.distance.max() * ureg.m) / surface_profile.clutter_profile.max()
-    ) / aspect
+    aspect = ((surface_profile.distance.max() * ureg.m) / surface_profile.lc_profile.max()) / aspect
     ax.set_aspect(aspect)
 
     return ax
