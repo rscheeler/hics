@@ -5,10 +5,9 @@ from typing import Any
 
 import numpy as np
 import xarray as xr
-from pint import Quantity
 from pyproj import Geod, Transformer
 
-from .. import ureg
+from ..units import ureg
 
 GEOD = Geod(ellps="WGS84")
 
@@ -75,13 +74,13 @@ class XRCRSTransformer:
         basemag = list(deepcopy(args))
         for i, (a, unit, bunit) in enumerate(zip(args, self.source_units, self.source_base_units)):
             if isinstance(a, xr.DataArray):
-                if isinstance(a.data, Quantity):
+                if isinstance(a.data, ureg.Quantity):
                     adc = xr.DataArray(a.data.to(unit).magnitude, dims=a.dims, coords=a.coords)
                 else:
                     adc = xr.DataArray(
                         (a.data * bunit).to(unit).magnitude, dims=a.dims, coords=a.coords
                     )
-            elif isinstance(a, Quantity):
+            elif isinstance(a, ureg.Quantity):
                 adc = a.to(unit).magnitude
             else:
                 adc = (a * bunit).to(unit).magnitude
@@ -134,11 +133,11 @@ class XRCRSTransformer:
             coords = dict(position=list(self.target_dims))
 
             # Take magnitudes depending on data type
-            if isinstance(transdata[0], Quantity):
+            if isinstance(transdata[0], ureg.Quantity):
                 tlist = [t.magnitude for t in transdata]
 
             elif isinstance(transdata[0], xr.DataArray):
-                if isinstance(transdata[0].data, Quantity):
+                if isinstance(transdata[0].data, ureg.Quantity):
                     tlist = [t.data.magnitude for t in transdata]
                 else:
                     tlist = [t.data for t in transdata]

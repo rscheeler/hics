@@ -1,10 +1,13 @@
+from typing import Any
+
 import numpy as np
 import xarray as xr
-from pint import Quantity
 from xarray import DataArray
 
+from .units import ureg
 
-def kw2da(**kwargs) -> dict:
+
+def kw2da(**kwargs: Any) -> dict[xr.DataArray]:
     """
     Convert kwargs of one-dimensional data into an xarray DataArray object.
 
@@ -19,12 +22,12 @@ def kw2da(**kwargs) -> dict:
     for k, v in kwargs.items():
         # Dimensional coordinate data will have quantities removed, convert to base units
         if not isinstance(v, xr.DataArray):
-            if isinstance(v, Quantity):
+            if isinstance(v, ureg.Quantity):
                 v = v.to_base_units()  # noqa: PLW2901
             if not isinstance(v, np.ndarray) or v.shape == ():
                 v = [v]  # noqa: PLW2901
             out[k] = DataArray(v, dims=(k,), coords={k: v})
-        elif isinstance(v.data, Quantity):
+        elif isinstance(v.data, ureg.Quantity):
             v.data = v.data.to_base_units()
             out[k] = v
         else:
@@ -49,7 +52,7 @@ class Singleton:
         return cls._instances[cls]
 
 
-def vector_norm(x: xr.DataArray, dim: str, ord=None) -> xr.DataArray:
+def vector_norm(x: xr.DataArray, dim: str, ord: Any | None = None) -> xr.DataArray:
     """
     Wrapper to perform np.linalg.norm on a xr.DataArray.
 

@@ -1,16 +1,20 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 from loguru import logger
-from pint import Quantity
 from scipy.spatial.transform import Rotation
 
-from .. import ureg
 from ..hics import GLOBAL_CS, HCS
+from ..units import ureg
 from .dem import DEM, llh2geocent
 from .transforms import GEOD
+
+if TYPE_CHECKING:
+    from pint import Quantity
 
 
 def interp_llpnts2hcs(

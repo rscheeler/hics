@@ -16,10 +16,10 @@ import xarray as xr
 from loguru import logger
 from odc.geo.geobox import GeoBox
 from odc.geo.xr import xr_reproject
-from pint import Quantity
 from rasterio.enums import Resampling
 from rioxarray import open_rasterio
 
+from ..units import ureg
 from ..utils import Singleton, kw2da
 from .config import DEM_SETTINGS
 from .downloader import DEM_CATALOG, BoundingBox, GeoAsset, get_geospatial_data
@@ -29,8 +29,6 @@ from .transforms import XRCRSTransformer
 # For linting
 if TYPE_CHECKING:
     import xarray as xr
-
-    # from pint import Quantity
     from rasterio.enums import Resampling
 
 
@@ -436,11 +434,11 @@ class _Terrain(Singleton):
         except ValueError:
             # Catch the error and load in data based off of points
             # Create lat,lon point list
-            if isinstance(lats.data, Quantity):
+            if isinstance(lats.data, ureg.Quantity):
                 lapts = lats.data.to("radian").magnitude.copy()
             else:
                 lapts = lats.data.copy()
-            if isinstance(lons.data, Quantity):
+            if isinstance(lons.data, ureg.Quantity):
                 lopts = lons.data.to("radian").magnitude.copy()
             else:
                 lopts = lons.data.copy()
@@ -489,11 +487,11 @@ class _Terrain(Singleton):
         except ValueError:
             # Catch the error and load in data based off of points
             # Create lat,lon point list
-            if isinstance(lats.data, Quantity):
+            if isinstance(lats.data, ureg.Quantity):
                 lapts = lats.data.to("radian").magnitude.copy()
             else:
                 lapts = lats.data.copy()
-            if isinstance(lons.data, Quantity):
+            if isinstance(lons.data, ureg.Quantity):
                 lopts = lons.data.to("radian").magnitude.copy()
             else:
                 lopts = lons.data.copy()
@@ -534,7 +532,7 @@ class _Terrain(Singleton):
 DEM = _Terrain()
 
 
-def hagl2amsl(*coords):
+def hagl2amsl(*coords: float | xr.DataArray) -> float | xr.DataArray:
     """
     Convert height above ground level (HAGL) to height above mean sea level (AMSL).
     Coords are lat:radian, lon:radian, hagl:meter.
@@ -543,19 +541,24 @@ def hagl2amsl(*coords):
 
     gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
 
-    if coords[0].shape == ():
+    if not hasattr(coords[0], "shape"):
         gndlevel = gndlevel.values.squeeze()
+    elif coords[0].shape == ():
+        gndlevel = gndlevel.values.squeeze()
+
     return coords[2] + gndlevel
 
 
-def amsl2hagl(*coords):
+def amsl2hagl(*coords: float | xr.DataArray) -> float | xr.DataArray:
     """Convert height above mean sea level (AMSL) to height above ground level (HAGL).
     Coords are lat:radian, lon:radian, amsl:meter.
     """
     ll = kw2da(lat=coords[0], lon=coords[1])
     gndlevel = DEM.interp(lat=ll["lat"], lon=ll["lon"])
 
-    if coords[0].shape == ():
+    if not hasattr(coords[0], "shape"):
+        gndlevel = gndlevel.values.squeeze()
+    elif coords[0].shape == ():
         gndlevel = gndlevel.values.squeeze()
 
     return coords[2] - gndlevel

@@ -1,30 +1,32 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Type
 
 import numpy as np
 import xarray as xr
 from loguru import logger
 from scipy.spatial.transform import Rotation
 
-from .. import ureg
 from ..datatypes import _QUATERNION_COORD_DICT, _QUATERNION_COORDS, _QUATERNION_DIM
+from ..units import ureg
 from ..utils import vector_norm
 from .dem import XRCRSTransformer_Terrain, hagl2amsl
 
 if TYPE_CHECKING:
-    from .. import HCS, ureg
+    from pint import Quantity
+
+    from .. import HCS
 
 
 def from_crs(
-    cls,
-    coords,
+    cls: type[HCS],
+    coords: tuple[Quantity, Quantity, Quantity],
     epsg: str = "EPSG:4979",
     un: str = "h",
     ux: str = "lon",
     hagl: bool = False,
-    **kwargs,
+    **kwargs: Any,
 ) -> HCS:
     """
     Generate coordinate system from lat, lon, h. Rotation defined by unit normal un and unit x.

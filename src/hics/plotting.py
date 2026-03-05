@@ -68,13 +68,22 @@ def viewcs_pyvista(
 
     # Get X,Y,Z unit vectors (directions)
     xvect = (
-        reference_cs.relative_position(HCS([vector_length, 0, 0] * ureg(units), reference=cs)) - p0
+        reference_cs.relative_position(
+            HCS([vector_length, 0, 0] * ureg.parse_units(units), reference=cs)
+        )
+        - p0
     )
     yvect = (
-        reference_cs.relative_position(HCS([0, vector_length, 0] * ureg(units), reference=cs)) - p0
+        reference_cs.relative_position(
+            HCS([0, vector_length, 0] * ureg.parse_units(units), reference=cs)
+        )
+        - p0
     )
     zvect = (
-        reference_cs.relative_position(HCS([0, 0, vector_length] * ureg(units), reference=cs)) - p0
+        reference_cs.relative_position(
+            HCS([0, 0, vector_length] * ureg.parse_units(units), reference=cs)
+        )
+        - p0
     )
 
     # Convert to specified units and extract magnitudes
@@ -182,13 +191,22 @@ def viewcs_matplotlib(
 
     # Get X,Y,Z unit vectors
     xvect = (
-        reference_cs.relative_position(HCS([vector_length, 0, 0] * ureg(units), reference=cs)) - p0
+        reference_cs.relative_position(
+            HCS([vector_length, 0, 0] * ureg.parse_units(units), reference=cs)
+        )
+        - p0
     )
     yvect = (
-        reference_cs.relative_position(HCS([0, vector_length, 0] * ureg(units), reference=cs)) - p0
+        reference_cs.relative_position(
+            HCS([0, vector_length, 0] * ureg.parse_units(units), reference=cs)
+        )
+        - p0
     )
     zvect = (
-        reference_cs.relative_position(HCS([0, 0, vector_length] * ureg(units), reference=cs)) - p0
+        reference_cs.relative_position(
+            HCS([0, 0, vector_length] * ureg.parse_units(units), reference=cs)
+        )
+        - p0
     )
 
     # Convert to specified units
