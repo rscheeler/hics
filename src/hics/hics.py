@@ -660,61 +660,8 @@ class HCS:
 
 
 # Create global coorinate system, this is the default
-_GLOBAL_CS = None
-
-
-def get_global_cs():
-    global _GLOBAL_CS
-    if _GLOBAL_CS is None:
-        _GLOBAL_CS = HCS((0, 0, 0) * ureg.m, reference=None, name="Global HCS")
-        _GLOBAL_CS.reference = None
-    return _GLOBAL_CS
-
-
-class LazyGlobalCS:
-    def __getattr__(self, name):
-        return getattr(get_global_cs(), name)
-
-    def __repr__(self):
-        return repr(get_global_cs())
-
-
-# This is now an instant, "hollow" object
-GLOBAL_CS = LazyGlobalCS()
+GLOBAL_CS = HCS((0, 0, 0) * ureg.m, reference="GLOBAL", name="Global HCS")
+GLOBAL_CS.reference = None
 # Patch from_crs if geo dependencies exist
 if HAS_GEO_DEPS:
-    module = importlib.import_module(".geo.crs", package=__package__)
-    HCS.from_crs = classmethod(module.from_crs)
-
-
-# def _apply_awesome_patch(target_cls):
-#     # --- 1. The Property Implementation ---
-#     def get_awesome_feature(self) -> AwesomeType:
-#         # Import only once; Python's sys.modules handles the caching
-#         module = importlib.import_module(".awesome", package=__package__)
-
-#         # Create the feature instance
-#         feature_instance = module.AwesomeType(self.value)
-
-#         # OPTIONAL: "Idempotent Patch"
-#         # Replace the property with the actual value so this logic
-#         # never runs again for this specific instance.
-#         self.__dict__["awesome_feature"] = feature_instance
-#         return feature_instance
-
-#     # --- 2. The Classmethod Implementation ---
-#     def from_crs(cls, *args, **kwargs):
-#         module = importlib.import_module(".geo.crs", package=__package__)
-#         return module.from_crs(cls, *args, **kwargs)
-
-#     # Attach them
-#     target_cls.awesome_feature = property(get_awesome_feature)
-#     target_cls.from_crs = classmethod(from_crs)
-
-
-# --- 3. Optimized Trigger ---
-# find_spec is much faster than a 'try/import' block for checking presence
-# if HAS_GEO_DEPS:
-#     _apply_awesome_patch(HCS)
-
-# HCS.from_crs()
+    HCS.from_crs = classmethod(from_crs)
