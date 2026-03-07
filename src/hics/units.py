@@ -18,6 +18,10 @@ def getreg() -> UnitRegistry:
 
     # Now, subsequent calls anywhere in your app will use this cached registry
     app_ureg = pint.get_application_registry()
+    
+    # Settings
+    app_ureg.autoconvert_offset_to_baseunit = True
+    app_ureg.force_ndarray_like = True
     return app_ureg
 
 
