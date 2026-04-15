@@ -8,21 +8,25 @@ if TYPE_CHECKING:
     from pint import UnitRegistry
 
 
-def getreg() -> UnitRegistry:
-    # 1. Create the registry with automatic OS-level caching
-    # This can improve startup performance by 5x to 20x
-    ureg = pint.UnitRegistry(cache_folder=":auto:")
+def get_ureg() -> UnitRegistry:
+    """Retrieves or initializes the application-wide UnitRegistry."""
+    # Get current application registry
+    _ureg = pint.get_application_registry()
 
-    # 2. Set this instance as the global application registry
-    pint.set_application_registry(ureg)
+    # If the returned registry is the default 'internal' one it isn't cached
+    if _ureg.cache_folder is None:
+        # Create new with caching
+        _ureg = pint.UnitRegistry(cache_folder=":auto:")
 
-    # Now, subsequent calls anywhere in your app will use this cached registry
-    app_ureg = pint.get_application_registry()
-    
-    # Settings
-    app_ureg.autoconvert_offset_to_baseunit = True
-    app_ureg.force_ndarray_like = True
-    return app_ureg
+        # Set application registry
+        pint.set_application_registry(_ureg)
+
+    # Enforce required configuration settings
+    _ureg.autoconvert_offset_to_baseunit = True
+    _ureg.force_ndarray_like = True
+
+    return _ureg
 
 
-ureg = getreg()
+# Top-level instance for easy importing
+ureg = get_ureg()

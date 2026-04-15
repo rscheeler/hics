@@ -48,6 +48,7 @@ geo = [
     "gdal>=3.11.4",
     "nest_asyncio",
     "odc-geo",
+    "skyfield",
 ]
 
 [dependency-groups]

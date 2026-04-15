@@ -16,6 +16,7 @@ class _DEMSettings:
         self._base_data_dir = Path(user_data_dir(APP_NAME, appauthor=False))
         self._dem_folder = None
         self._nlcdleg_folder = None
+        self._tle_folder = None
         self.initialize_folders()
 
     def _get_path(self, env_key: str, folder_name: str) -> Path:
@@ -32,6 +33,7 @@ class _DEMSettings:
         try:
             self.DEM_FOLDER.mkdir(parents=True, exist_ok=True)
             self.NLCDLEG_FOLDER.mkdir(parents=True, exist_ok=True)
+            self.TLE_FOLDER.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             logger.exception(f"Directories cannot be created: {error}")
 
@@ -54,6 +56,16 @@ class _DEMSettings:
     @NLCDLEG_FOLDER.setter
     def NLCDLEG_FOLDER(self, path: str | Path) -> None:
         self._nlcdleg_folder = Path(path)
+
+    @property
+    def TLE_FOLDER(self) -> Path:
+        if self._tle_folder is None:
+            self._tle_folder = self._get_path("HICS_TLE_FOLDER", "tle")
+        return self._tle_folder
+
+    @TLE_FOLDER.setter
+    def TLE_FOLDER(self, path: str | Path) -> None:
+        self._tle_folder = Path(path)
 
 
 DEM_SETTINGS = _DEMSettings()
