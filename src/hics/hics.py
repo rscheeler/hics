@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import xarray as xr
+from loguru import logger
 from scipy.spatial.transform import Rotation, Slerp
 
 from .datatypes import (
@@ -25,13 +26,15 @@ from .datatypes import (
 )
 from .geo import HAS_GEO_DEPS
 from .units import ureg
-from .utils import vector_norm
+from .utils import basemagxr, compute_if_dask, vector_norm, wraps_xr
 
 if HAS_GEO_DEPS:
     from .geo.crs import from_crs
     from .geo.dem import amsl2hagl, geocent2llh
 if TYPE_CHECKING:
     from pint import Quantity
+
+_wamsl2hagl = wraps_xr(ureg.m, (ureg.radian, ureg.radian, ureg.m))(amsl2hagl)
 
 
 class HCSOrigin:
@@ -515,7 +518,18 @@ class HCS:
                 self._rotation_tree = [self.rotation]
         return self._rotation_tree
 
+    def _calc_llh(self):
+        gp = self.global_position
+        llh = geocent2llh.transform(
+            gp.sel(position="x"), gp.sel(position="y"), gp.sel(position="z")
+        )
+        _llh = []
+        for l in llh:
+            _llh.append(l.drop_vars("position"))
+        return _llh
+
     @property
+    @wraps_xr((ureg.degree, ureg.degree, ureg.m), None)
     def llh(self):
         """Return position in latitude, longitude, and height."""
         if self._llh is None and HAS_GEO_DEPS:
@@ -539,20 +553,13 @@ class HCS:
             h_orig = deepcopy(h)
 
             # Get hagl
-            hagl = amsl2hagl(np.deg2rad(lat), np.deg2rad(lon), h)
-
-            # # Apply units on output
-            # if isinstance(hagl, xr.DataArray):
-            #     hagl.data *= ureg.meter
-            # else:
-            #     hagl *= ureg.meter
+            hagl = _wamsl2hagl(lat, lon, h)
 
             # Convert to DataArray if needed
             if isinstance(h_orig, xr.DataArray):
                 hagl = xr.DataArray(hagl, dims=h_orig.dims, coords=h_orig.coords, name="HAGL")
 
             self._hagl = hagl
-
         return self._hagl
 
     def interp(self, time: xr.DataArray) -> HCS:

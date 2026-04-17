@@ -5,7 +5,10 @@ from typing import TYPE_CHECKING
 import dask.array as da
 import numpy as np
 import xarray as xr
+from loguru import logger
 
+from .. import ureg
+from ..utils import basemagxr, compute_if_dask, wraps_xr
 from .dem import DEM
 from .transforms import GEOD
 
@@ -58,13 +61,10 @@ def get_surface_profile(tx_cs: HCS, rx_cs: HCS):
     """
     # Self if assume to be transmitter or starting point of the profile
     tx = list(tx_cs.llh) + [tx_cs.hagl]
+    # tx = basemagxr(*tx)
     # Other is then the receiver
     rx = list(rx_cs.llh) + [rx_cs.hagl]
-    # Convert to radians
-    tx[0] = np.deg2rad(tx[0])
-    tx[1] = np.deg2rad(tx[1])
-    rx[0] = np.deg2rad(rx[0])
-    rx[1] = np.deg2rad(rx[1])
+    # rx = basemagxr(*rx)
 
     # Confirm data array sizes and broadcast accordingly
     if tx[0].size == 1 and rx[0].size != 1:
@@ -90,6 +90,7 @@ def get_surface_profile(tx_cs: HCS, rx_cs: HCS):
     return surf_prof
 
 
+@wraps_xr(None, (ureg.radian, ureg.m))
 def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
     """
     This module takes a set of point coordinates and returns the surface profile.
@@ -113,8 +114,8 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
     lc_nlcds = []
     for i, (*line_data, txamsl, txagl, rxamsl, rxagl) in enumerate(
         zip(
-            *line,
-            *alts,
+            *[np.array([l.data]).ravel() for l in line],
+            *[np.array([a.data]).ravel() for a in alts],
         )
     ):
         # Geographic distance
@@ -212,11 +213,60 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
     )
 
 
-def compute_if_dask(x):
-    """Computes a dask array/quantity, otherwise returns the input."""
-    # Check if the object itself is a pint Quantity with dask data
-    if hasattr(x, "compute"):
-        return x.compute()
-    else:
-        # It's a numpy array, a pint Quantity with numpy data, etc.
-        return x
+def inv_transform(self_cs: HCS, other_cs: HCS):
+    """
+    Run the inverse transformation from pyproj.GEOD to determine forward and back azimuths, plus distances between
+    initial points and terminus points.
+    """
+    # Self if assume to be transmitter or starting point of the profile
+    tx = self_cs.llh
+    # Other is then the receiver
+    rx = other_cs.llh
+
+    # Confirm data array sizes and broadcast accordingly
+    if tx[0].size == 1 and rx[0].size != 1:
+        full_tx = []
+        for txi, rxi in zip(tx, rx):
+            full_tx.append(xr.full_like(rxi, txi.item()))
+        tx = full_tx
+    elif rx[0].size == 1 and tx[0].size != 1:
+        full_rx = []
+        for txi, rxi in zip(tx, rx):
+            full_rx.append(xr.full_like(txi, rxi.item()))
+        rx = full_rx
+
+    # Make line list
+    line = [tx[1], tx[0], rx[1], rx[0]]
+
+    # Call surface_profile_function to get the profile
+    txazs = []
+    rxazs = []
+    dists = []
+    for line_data in zip(*[l.data.to("radian").magnitude.ravel() for l in line]):
+        # Geographic distance and azimuths
+        txaz, rxaz, dist = GEOD.inv(*line_data, radians=True)
+        txazs.append(txaz)
+        rxazs.append(rxaz)
+        dists.append(dist)
+    # Create DataArrays
+    if tx[0].dims == ():
+        txazs = txazs[0]
+    txazs = xr.DataArray(txazs, dims=tx[0].dims, coords=tx[0].coords)
+    txazs.data = (txazs.data * ureg.radian).to("degree")
+    if rx[0].dims == ():
+        rxazs = rxazs[0]
+    rxazs = xr.DataArray(rxazs, dims=rx[0].dims, coords=rx[0].coords)
+    rxazs.data = (rxazs.data * ureg.radian).to("degree")
+    if tx[0].dims == ():
+        dists = dists[0]
+    dists = xr.DataArray(dists, dims=tx[0].dims, coords=tx[0].coords)
+    dists.data = dists.data * ureg.meter
+    return txazs, rxazs, dists
+
+
+def relative_azimuth(self_cs: HCS, other_cs: HCS):
+    """Get forward and reverse azimuth between self and other_cs."""
+    # Get inverse transform and only return azimuths
+    txazs, rxazs, dists = inv_transform(self_cs, other_cs)
+
+    return txazs, rxazs

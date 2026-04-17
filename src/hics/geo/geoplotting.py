@@ -62,7 +62,6 @@ def view_surface_profile(
     """
     # Get the surface profile
     surface_profile = get_surface_profile(tx_cs, rx_cs)
-
     # Down-select if kwargs specified
     if len(kwargs) > 0:
         surface_profile = surface_profile.isel(**kwargs)
@@ -147,6 +146,8 @@ def view_latlon(
 
     # Get position in lat/lon
     lat, lon, alt = cs.llh
+    lat.data = lat.data.magnitude
+    lon.data = lon.data.magnitude
 
     if ax is None:
         fig = plt.figure()  # open matplotlib figure

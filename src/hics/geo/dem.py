@@ -20,7 +20,7 @@ from rasterio.enums import Resampling
 from rioxarray import open_rasterio
 
 from ..units import ureg
-from ..utils import Singleton, kw2da
+from ..utils import Singleton, kw2da, wraps_xr
 from .config import DEM_SETTINGS
 from .downloader import DEM_CATALOG, BoundingBox, GeoAsset, get_geospatial_data
 from .setup_assets import generate_rf_csv
@@ -520,10 +520,6 @@ class _Terrain(Singleton):
     ) -> tuple[xr.DataArray]:
         nlcd = self.interp_nlcd(lat=lat, lon=lon, **kwargs)
         lch = self.landcoverh(nlcd)
-
-        # Mask first and last five points to help with ITM interpolation
-        lch.loc[dict(distance=lch.distance[:5])] = 0
-        lch.loc[dict(distance=lch.distance[-5:])] = 0
 
         return lch, nlcd
 
