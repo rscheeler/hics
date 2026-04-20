@@ -48,7 +48,7 @@ def determine_num_samples(
     return round((-1 / ((stretch * distance_m) + (1 / (upper_limit - lower_limit)))) + upper_limit)
 
 
-def get_surface_profile(tx_cs: HCS, rx_cs: HCS):
+def get_surface_profile(tx_cs: HCS, rx_cs: HCS, lc_skip_ind: int | None = None) -> xr.Dataset:
     """
     Get the surface profile between the two coordinate systems.
 
@@ -58,6 +58,8 @@ def get_surface_profile(tx_cs: HCS, rx_cs: HCS):
         tx Coordinate system to determine profile between.
     rx_cs : CS
         rx Coordinate system to determine profile between.
+    lc_skip_ind : int | None
+        Index of the land cover class to skip in the interpolation.
     """
     # Self if assume to be transmitter or starting point of the profile
     tx = list(tx_cs.llh) + [tx_cs.hagl]
@@ -85,13 +87,13 @@ def get_surface_profile(tx_cs: HCS, rx_cs: HCS):
     alts = [tx[2], tx[3], rx[2], rx[3]]
 
     # Call surface_profile_function to get the profile
-    surf_prof = surface_profile_xr(line, alts)
+    surf_prof = surface_profile_xr(line, alts, lc_skip_ind=lc_skip_ind)
 
     return surf_prof
 
 
 @wraps_xr(None, (ureg.radian, ureg.m))
-def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
+def surface_profile_xr(line: list, alts: list, lc_skip_ind: int | None = None) -> xr.DataArray:
     """
     This module takes a set of point coordinates and returns the surface profile.
 
@@ -101,6 +103,8 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
         List of DataArrays [lon1,lat1,lon2,lat2]
     alts : list
         List of DataArrays [amsl1,agl1,amsl2,agl2]
+    lc_skip_ind : int | None
+        Index of the land cover class to skip in the interpolation.
 
     Returns:
     -------
@@ -148,7 +152,7 @@ def surface_profile_xr(line: list, alts: list) -> xr.DataArray:
 
         # Sample elevation profile by using DataArray interpolate
         surface_profile = DEM.interp(lat=lats, lon=lons)
-        lc_profile, lc_nlcd = DEM.interp_landcover(lat=lats, lon=lons)
+        lc_profile, lc_nlcd = DEM.interp_landcover(lat=lats, lon=lons, lc_skip_ind=lc_skip_ind)
         surface_profile = compute_if_dask(surface_profile)
         lc_profile = compute_if_dask(lc_profile)
         lc_nlcd = compute_if_dask(lc_nlcd)

@@ -40,6 +40,8 @@ def view_surface_profile(
     aspect: float = 2,
     fill_delta: float = 0.05,
     ax: plt.Axes | None = None,
+    lc: bool = True,
+    lc_skip_ind: int | None = None,
     **kwargs,
 ):
     """
@@ -55,13 +57,19 @@ def view_surface_profile(
         Aspect ratio of the plot.
     fill_delta : float
         Amount relative to profile delta to fill below
+    ax : plt.Axes | None
+        Matplotlib axis to plot on. If None, a new one is created.
+    lc : bool
+        Whether to plot land cover profile.
+    lc_skip_ind : int | None
+        Index of the land cover class to skip in the interpolation.
 
     **kwargs
     --------
     Additional kwargs to down-select surface profiles with temporal dependence.
     """
     # Get the surface profile
-    surface_profile = get_surface_profile(tx_cs, rx_cs)
+    surface_profile = get_surface_profile(tx_cs, rx_cs, lc_skip_ind=lc_skip_ind)
     # Down-select if kwargs specified
     if len(kwargs) > 0:
         surface_profile = surface_profile.isel(**kwargs)
@@ -70,7 +78,8 @@ def view_surface_profile(
 
     # Plot the surface line
     surface_profile.surface_profile.plot(color="k", label="Surface", ax=ax)
-    surface_profile.lc_profile.plot(color="k", lw=1, ls=":", label="Land Cover", ax=ax)
+    if lc:
+        surface_profile.lc_profile.plot(color="k", lw=1, ls=":", label="Land Cover", ax=ax)
     if ax is None:
         ax = plt.gca()
 
@@ -90,16 +99,17 @@ def view_surface_profile(
     )
 
     # Fill with land cover color between earth and the land cover
-    colors = nlcdcolor(surface_profile.lc_nlcd.data)
-    for i, c in zip(range(surface_profile.distance.size - 1), colors):
-        ax.fill_between(
-            surface_profile.distance[i : i + 2],
-            surface_profile.lc_profile.data[i : i + 2],
-            surface_profile.surface_profile.data[i : i + 2],
-            step="mid",
-            color=c,
-            alpha=0.3,
-        )
+    if lc:
+        colors = nlcdcolor(surface_profile.lc_nlcd.data)
+        for i, c in zip(range(surface_profile.distance.size - 1), colors):
+            ax.fill_between(
+                surface_profile.distance[i : i + 2],
+                surface_profile.lc_profile.data[i : i + 2],
+                surface_profile.surface_profile.data[i : i + 2],
+                step="mid",
+                color=c,
+                alpha=0.3,
+            )
 
     # Plot markers
     ax.plot(
