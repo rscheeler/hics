@@ -228,7 +228,7 @@ class GeoTIFFIndex(Singleton):
         Scans the directory for GeoTIFFs, reads their headers ONCE, and builds/updates the
         persistent spatial index. This is the only slow operation.
         """
-        logger.info(f"Starting index build/update for {self.cache_dir}...")
+        logger.debug(f"Starting index build/update for {self.cache_dir}...")
         if not self._INDEXSETUP:
             self.setupindex()
         # Start a new index connection, creating the files if they don't exist
@@ -289,7 +289,7 @@ class GeoTIFFIndex(Singleton):
         deleted_paths = set(existing_paths.keys()) - current_paths
 
         if deleted_paths:
-            logger.info(f"Removing {len(deleted_paths)} deleted files from index.")
+            logger.debug(f"Removing {len(deleted_paths)} deleted files from index.")
 
             # Iterate over the paths that no longer exist on disk
             for deleted_path in deleted_paths:
@@ -309,7 +309,7 @@ class GeoTIFFIndex(Singleton):
         # Commit changes to disk and save the map
         idx.close()
         self._save_metadata_map()
-        logger.info("Index build/update complete.")
+        logger.debug("Index build/update complete.")
 
     def query(self, bounding_box: BoundingBox) -> list[GeoTIFFMetadata]:
         """
@@ -350,7 +350,7 @@ class GeoTIFFIndex(Singleton):
 
         idx.close()
 
-        logger.info(f"R-tree query found {len(results)} tiles intersecting the AOI.")
+        logger.debug(f"R-tree query found {len(results)} tiles intersecting the AOI.")
         return results
 
 
@@ -457,7 +457,7 @@ def _delete_old_files(file_paths: list[Path]):
     if not file_paths:
         return
 
-    logger.info(f"Deleting {len(file_paths)} old tiles...")
+    logger.debug(f"Deleting {len(file_paths)} old tiles...")
     for fpath in file_paths:
         try:
             fpath.unlink(missing_ok=True)
@@ -504,7 +504,7 @@ async def _download_file(session: aiohttp.ClientSession, url: str, destination: 
                     async for chunk in resp.content.iter_chunked(_CHUNK_SIZE):
                         await f.write(chunk)
                         bar.update(len(chunk))
-        logger.info(f"Download of {destination.name} complete.")
+        logger.success(f"Download of {destination.name} complete.")
 
     except TimeoutError:
         logger.error(f"The request for {url} timed out.")
@@ -567,10 +567,10 @@ async def get_geospatial_data(
 
     # Get current local tiles that intersect bounding box and match the geo_asset
     GEOTIFF_INDEX.build_index()  # Build the index first
-    logger.info(f"Searching bounding box {bbox}")
+    logger.debug(f"Searching bounding box {bbox}")
     local_data = find_local_geotiffs(bbox, geo_asset)
     results = local_data
-    logger.info(f"Found {geo_asset.collection} files {local_data}")
+    logger.debug(f"Found {geo_asset.collection} files {local_data}")
 
     # Paths of local tiles we start with
     initial_local_paths = list(Path(m["path"]) for m in local_data.values())
@@ -591,7 +591,7 @@ async def get_geospatial_data(
         catalog = pystac_client.Client.open(
             stac_url, modifier=planetary_computer.sign_inplace, timeout=60
         )
-        logger.info(f"Connection to {stac_url} established")
+        logger.debug(f"Connection to {stac_url} established")
     except Exception as e:
         logger.error(f"An error occurred connecting to STAC: {e}. Returning local files.")
         return results
@@ -612,9 +612,9 @@ async def get_geospatial_data(
         # Search for items within the collection and bounding box
         search = catalog.search(**search_params)
         items = search.item_collection()
-        logger.info(f"STAC search found {len(items)} items.")
+        logger.debug(f"STAC search found {len(items)} items.")
         if not items:
-            logger.info(
+            logger.warning(
                 f"No items in '{geo_asset.collection}-{geo_asset.gsd}m' in the specified bbox."
             )
             return results

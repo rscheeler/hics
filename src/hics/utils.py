@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 import xarray as xr
+from loguru import logger
 from xarray import DataArray
 
 from .units import ureg

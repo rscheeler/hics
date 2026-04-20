@@ -37,11 +37,11 @@ def get_celestrak_tle(group: str) -> str | None:
         response.raise_for_status()
         # Check if the response is the "Data has not updated" message
         if "GP data has not updated" in response.text:
-            logger.info(f"CelesTrak: {group} data hasn't changed. Using cached file.")
+            logger.debug(f"CelesTrak: {group} data hasn't changed. Using cached file.")
             return None
         return response.text
     except requests.exceptions.RequestException as e:
-        logger.info(f"Error fetching TLE data: {e}")
+        logger.warning(f"Error fetching TLE data: {e}")
         return None
 
 
@@ -98,16 +98,16 @@ def check_celestrak_tle(group: str, dir: Path = DEM_SETTINGS.TLE_FOLDER) -> bool
                 f.write(new_tle_data)  # write the new data to the file.
             return True
         else:
-            logger.info("TLE data is up-to-date.")
+            logger.debug("TLE data is up-to-date.")
             return False
 
     except FileNotFoundError:
-        logger.info("Existing TLE file not found. Creating new file.")
+        logger.debug("Existing TLE file not found. Creating new file.")
         with open(filename, "w", newline="") as f:
             f.write(new_tle_data)
         return True  # Because a file was just created, it is by definition a change.
     except OSError as e:
-        logger.info(f"Error reading/writing file: {e}")
+        logger.error(f"Error reading/writing file: {e}")
         return False
 
 
@@ -185,17 +185,17 @@ def get_closest_from_tle(
 
     # Log results
     if closest_satellite:
-        logger.info(f"Closest satellite: {closest_satellite.name}")
-        logger.info(f"Distance: {min_distance:.2f} km")
+        logger.success(f"Closest satellite: {closest_satellite.name}")
+        logger.debug(f"Distance: {min_distance:.2f} km")
         geocentric = satellite.at(time)
         lat, lon = wgs84.latlon_of(geocentric)
         # Convert satellite position to ECEF using ITRS frame.
-        logger.info(f"Satellite ECEF: {geocentric.frame_xyz(itrs).m}")
-        logger.info(
+        logger.debug(f"Satellite ECEF: {geocentric.frame_xyz(itrs).m}")
+        logger.debug(
             f"Satellite Latitude, Longitude: {lat.degrees:.4f} degrees,{lon.degrees:.4f} degrees"
         )
     else:
-        logger.info("No satellites found.")
+        logger.warning("No satellites found.")
     return closest_satellite, satellites
 
 

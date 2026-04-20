@@ -57,7 +57,7 @@ def _generate_vrt(
 
         # Clean up: Close the dataset to flush to disk
         ds = None
-        logger.info(f"VRT created: {vrt_path}")
+        logger.debug(f"VRT created: {vrt_path}")
 
     except Exception as e:
         logger.error(f"VRT generation failed: {e}")
@@ -99,7 +99,7 @@ def _generate_warpedvrt(
 
         # 3. Clean up: Close the dataset to flush to disk
         ds = None
-        logger.info(f"VRT created: {vrt_path}")
+        logger.debug(f"VRT created: {vrt_path}")
 
     except Exception as e:
         logger.error(f"Warped VRT generation failed: {e}")
@@ -159,7 +159,7 @@ def load_geotiffs(
     except ImportError:
         from rioxarray.merge import merge_arrays
 
-        logger.info("Merging geotiffs...")
+        logger.debug("Merging geotiffs...")
         # Open each file
         data_arrays = [open_rasterio(f, chunks=chunks_dict) for f in geotiffs]
         # Merge
@@ -168,7 +168,7 @@ def load_geotiffs(
     _PAD = 0.01
     # Clip and Re-project if needed
     if data.rio.crs != dst_crs:
-        logger.info(f"Reprojecting clipped area to {dst_crs} using {resampling.name}")
+        logger.debug(f"Reprojecting clipped area to {dst_crs} using {resampling.name}")
         # Get resolution, assume if greater than 0.1 it's in meters and convert to degrees
         res = abs(data.rio.resolution()[0])
         if res > 0.1:
@@ -246,10 +246,10 @@ class _Terrain(Singleton):
 
         leg_file = DEM_SETTINGS.NLCDLEG_FOLDER / f"{self.lc_asset.collection}.csv"
         if not leg_file.exists():
-            logger.info(f"Generating legend file: {leg_file}")
+            logger.debug(f"Generating legend file: {leg_file}")
             generate_rf_csv(leg_file.stem)
 
-        logger.info("Loading NLCD Legend and building lookup tables...")
+        logger.debug("Loading NLCD Legend and building lookup tables...")
         df = pd.read_csv(leg_file)
 
         # Process colors
@@ -396,7 +396,7 @@ class _Terrain(Singleton):
         bbox = BoundingBox(points)
         # Load geotiff data
         if geotiffs is not None:
-            logger.info(f"Loading {vrt_suffix} geotiffs: {geotiffs}")
+            logger.debug(f"Loading {vrt_suffix} geotiffs: {geotiffs}")
             data = load_geotiffs(geotiffs, vrt_suffix, "EPSG:4326", bbox)
         else:
             data = None
@@ -516,11 +516,15 @@ class _Terrain(Singleton):
         self,
         lat: xr.DataArray | None = None,
         lon: xr.DataArray | None = None,
+        lc_skip_ind: int | None = None,
         **kwargs: Any,
     ) -> tuple[xr.DataArray]:
         nlcd = self.interp_nlcd(lat=lat, lon=lon, **kwargs)
         lch = self.landcoverh(nlcd)
-
+        # Mask points
+        if lc_skip_ind is not None:
+            lch.loc[dict(distance=lch.distance[:lc_skip_ind])] = 0
+            lch.loc[dict(distance=lch.distance[-lc_skip_ind:])] = 0
         return lch, nlcd
 
 
