@@ -75,6 +75,11 @@ issues = "https://github.com/rscheeler/hics/issues"
 requires = ["uv_build>=0.7.19,<0.8.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+# Exclude mypy cache from both sdist and wheel
+source-exclude = [".mypy_cache"]
+wheel-exclude = [".mypy_cache"]
+
 [tool.uv.sources]
 gdal = [
   { index = "gdal-wheels", marker = "sys_platform == 'linux'" },
