@@ -3,53 +3,32 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
-  # Get release version
-  set-version:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Export tag
-        id: vars
-        run: echo tag=${GITHUB_REF#refs/*/} >> $GITHUB_OUTPUT
-
-      - name: Update project version
-        run: |
-          # Removes a potential 'v' prefix from the tag (e.g., v0.1.0 -> 0.1.0)
-          CLEAN_VERSION=$(echo "${{ steps.vars.outputs.tag }}" | sed 's/^v//')
-          sed -i "s/^version = \".*\"/version = \"$CLEAN_VERSION\"/" pyproject.toml
-
-      - name: Upload updated pyproject.toml
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyproject-toml
-          path: pyproject.toml
-
-  publish:
+  build-n-publish:
     runs-on: ubuntu-latest
-    needs: [set-version]
-
     permissions:
       id-token: write
-      contents: read
+      contents: write # Needed to update the version in the repo if desired
+    
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.6.5"
 
-      - name: Download updated pyproject.toml
-        uses: actions/download-artifact@v4
-        with:
-          name: pyproject-toml
+      - name: Set Version from Tag
+        run: |
+          # Grabs the tag name (v0.1.1) and strips the 'v' (0.1.1)
+          CLEAN_VERSION=$(echo "${{ github.event.release.tag_name }}" | sed 's/^v//')
+          sed -i "s/^version = \".*\"/version = \"$CLEAN_VERSION\"/" pyproject.toml
+          echo "Building version: $CLEAN_VERSION"
 
-      - name: Build package
+      - name: Build
         run: uv build
 
-      - name: Publish package
+      - name: Publish
         run: uv publish
