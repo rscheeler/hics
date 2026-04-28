@@ -6,29 +6,33 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-n-publish:
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: write # Needed to update the version in the repo if desired
-    
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      contents: read
 
+    steps:
+      # 1. Get the code
+      - uses: actions/checkout@v4
+
+      # 2. Install uv
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
 
-      - name: Set Version from Tag
+      # 3. Inject the version from the Tag
+      - name: Set Version
         run: |
-          # Grabs the tag name (v0.1.1) and strips the 'v' (0.1.1)
           CLEAN_VERSION=$(echo "${{ github.event.release.tag_name }}" | sed 's/^v//')
           sed -i "s/^version = \".*\"/version = \"$CLEAN_VERSION\"/" pyproject.toml
-          echo "Building version: $CLEAN_VERSION"
+          echo "Building version $CLEAN_VERSION"
 
-      - name: Build
+      # 4. Build the wheel
+      - name: Build package
         run: uv build
 
-      - name: Publish
+      # 5. Publish using Trusted Publishing
+      - name: Publish package
         run: uv publish
