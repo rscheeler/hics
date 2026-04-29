@@ -5,7 +5,6 @@ orientation.
 
 from __future__ import annotations
 
-import importlib.util
 import pickle
 from copy import deepcopy
 from pathlib import Path
@@ -15,6 +14,8 @@ import numpy as np
 import xarray as xr
 from loguru import logger
 from scipy.spatial.transform import Rotation, Slerp
+from xrench.units import ureg
+from xrench.xrutils import vector_norm, wraps_xr
 
 from .datatypes import (
     _POSITION_COORD_DICT,
@@ -25,8 +26,6 @@ from .datatypes import (
     _QUATERNION_DIM,
 )
 from .geo import HAS_GEO_DEPS
-from .units import ureg
-from .utils import basemagxr, compute_if_dask, vector_norm, wraps_xr
 
 if HAS_GEO_DEPS:
     from .geo.crs import from_crs
@@ -242,8 +241,8 @@ class HCSRotation:
         q = quat_da.transpose(*[d for d in quat_da.dims if d != _QUATERNION_DIM], _QUATERNION_DIM)
         v = vector_da.transpose(*[d for d in vector_da.dims if d != _POSITION_DIM], _POSITION_DIM)
 
-        flat_q = q.data.reshape(-1, len(_QUATERNION_COORDS))
-        flat_v = v.data.reshape(-1, len(_POSITION_COORDS))
+        flat_q = np.array(q.data).reshape(-1, len(_QUATERNION_COORDS))
+        flat_v = np.array(v.data).reshape(-1, len(_POSITION_COORDS))
 
         rot = Rotation.from_quat(flat_q)
         rotated = rot.apply(flat_v, inverse=inverse)
@@ -299,7 +298,7 @@ class HCSRotation:
         Rotation
             Flattened rotation object.
         """
-        return Rotation.from_quat(self.basemag.data.reshape(-1, len(_QUATERNION_COORDS)))
+        return Rotation.from_quat(np.array(self.basemag.data).reshape(-1, len(_QUATERNION_COORDS)))
 
     def __mul__(self, other: HCSRotation) -> HCSRotation:
         # Align and flatten

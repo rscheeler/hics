@@ -18,9 +18,10 @@ from odc.geo.geobox import GeoBox
 from odc.geo.xr import xr_reproject
 from rasterio.enums import Resampling
 from rioxarray import open_rasterio
+from xrench.units import ureg
+from xrench.utils import Singleton
+from xrench.xrutils import kw2da
 
-from ..units import ureg
-from ..utils import Singleton, kw2da, wraps_xr
 from .config import DEM_SETTINGS
 from .downloader import DEM_CATALOG, BoundingBox, GeoAsset, get_geospatial_data
 from .setup_assets import generate_rf_csv

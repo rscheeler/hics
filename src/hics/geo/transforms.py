@@ -6,8 +6,7 @@ from typing import Any
 import numpy as np
 import xarray as xr
 from pyproj import Geod, Transformer
-
-from ..units import ureg
+from xrench.units import ureg
 
 GEOD = Geod(ellps="WGS84")
 

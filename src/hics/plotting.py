@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
 from matplotlib import animation
+from xrench.units import ureg
 
-from . import ureg
 from .geo.geoplotting import *
 from .hics import HCS
 

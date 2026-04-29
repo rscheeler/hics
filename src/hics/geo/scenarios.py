@@ -7,9 +7,9 @@ import pandas as pd
 import xarray as xr
 from loguru import logger
 from scipy.spatial.transform import Rotation
+from xrench.units import ureg
 
 from ..hics import GLOBAL_CS, HCS
-from ..units import ureg
 from .dem import DEM, llh2geocent
 from .transforms import GEOD
 

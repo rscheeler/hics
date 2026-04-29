@@ -6,9 +6,9 @@ import dask.array as da
 import numpy as np
 import xarray as xr
 from loguru import logger
+from xrench.units import ureg
+from xrench.xrutils import compute_if_dask, wraps_xr
 
-from .. import ureg
-from ..utils import basemagxr, compute_if_dask, wraps_xr
 from .dem import DEM
 from .transforms import GEOD
 
@@ -63,10 +63,8 @@ def get_surface_profile(tx_cs: HCS, rx_cs: HCS, lc_skip_ind: int | None = None) 
     """
     # Self if assume to be transmitter or starting point of the profile
     tx = list(tx_cs.llh) + [tx_cs.hagl]
-    # tx = basemagxr(*tx)
     # Other is then the receiver
     rx = list(rx_cs.llh) + [rx_cs.hagl]
-    # rx = basemagxr(*rx)
 
     # Confirm data array sizes and broadcast accordingly
     if tx[0].size == 1 and rx[0].size != 1:

@@ -17,8 +17,8 @@ from matplotlib import animation
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import PathPatch
 from shapely.geometry import LineString
+from xrench.units import ureg
 
-from .. import ureg
 from ..hics import HCS
 from .dem import DEM
 from .geoutils import get_surface_profile

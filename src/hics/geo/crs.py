@@ -7,10 +7,10 @@ import numpy as np
 import xarray as xr
 from loguru import logger
 from scipy.spatial.transform import Rotation
+from xrench.units import ureg
+from xrench.xrutils import vector_norm
 
 from ..datatypes import _QUATERNION_COORD_DICT, _QUATERNION_COORDS, _QUATERNION_DIM
-from ..units import ureg
-from ..utils import vector_norm
 from .dem import XRCRSTransformer_Terrain, hagl2amsl
 
 if TYPE_CHECKING:
