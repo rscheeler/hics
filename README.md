@@ -1,4 +1,4 @@
-# :map: hics: Hierarchical Coordinate Systems
+# :world_map: hics: Hierarchical Coordinate Systems
 ```hics``` is a Python package for handling hierarchical coordinate systems (HCS). It allows you to define relative transformations (translation and rotation) between frames and automatically resolves them to global positions (ECEF) or relative positions between any two frames in the tree.
 
 ## Core Concepts
