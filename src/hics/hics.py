@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import pickle
 from copy import deepcopy
+from functools import reduce
+from operator import mul
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import xarray as xr
-from loguru import logger
 from scipy.spatial.transform import Rotation, Slerp
 from xrench.units import ureg
 from xrench.xrutils import vector_norm, wraps_xr
@@ -336,6 +337,24 @@ class HCS:
     Class for storing hierarchical origin and rotation. Origin and rotation are relative to the
     reference HCS.
 
+    Note on scipy rotation chains:
+    >>> from scipy.spatial.transform import Rotation
+    >>> # Define a rotated coordinate system that is rotated 90 degrees in z so the local coordinates x-axis now points in global y-axis
+    >>> rotz90 = Rotation.from_euler("Z", 90, degrees=True)
+    >>> # returns [0,1,0] Coordinate frame transform: Moves x-axis to y-axis describes local x in global coordinates
+    >>> print(rotz90.apply([1, 0, 0]))
+    >>> # returns [0,-1,0] Vector transform - describes global x-axis in local coordinates
+    >>> print(rotz90.apply([1, 0, 0], inverse=True))
+    >>> # Chained, now a y-axis rotation is added, when chained z-axis now points in global y
+    >>> # Chains are not commutative so order matters
+    >>> # Chain is built from global to self (left to right)
+    >>> roty90 = Rotation.from_euler("Y", 90, degrees=True)
+    >>> rot = rotz90 * roty90
+    >>> # returns [0,1,0] Coordinate frame transform: Moves z-axis to y-axis
+    >>> print(rot.apply([0, 0, 1]))
+    >>> # returns [-1,0,0] Vector transform - describes global z-axis in frame coordinates
+    >>> print(rot.apply([0, 0, 1], inverse=True))
+
     Parameters
     ----------
     origin : xr.DataArray, Quantity
@@ -463,13 +482,13 @@ class HCS:
             pos = origins[-1]
 
             # If no hierarchy need to return data properly
-            if len(origins[:-1][::-1]) == 0:
+            if len(origins[-2::-1]) == 0:
                 if isinstance(pos, HCSOrigin):
                     pos = pos.basemag
             else:
-                # Loop through by inverting the rotation and applying and add to the origin
-                for o, r in zip(origins[:-1][::-1], rots[:-1][::-1], strict=False):
-                    pos = r.apply(pos, inverse=True) + o
+                # Loop through by applying the rotation and adding to the origin
+                for o, r in zip(origins[-2::-1], rots[-2::-1], strict=False):
+                    pos = r.apply(pos) + o
             pos = self.origin.apply_units(pos)
 
             self.__global_position = HCSOrigin(pos)
@@ -571,24 +590,21 @@ class HCS:
         new_rotation = HCSRotation(r_func(**kwargs))
         return HCS(new_origin, new_rotation, reference=self.reference, name=self.name)
 
-    def relative_position_basemag(self, other_hcs: HCS | xr.DataArray):
+    def relative_position_basemag(self, other_hcs: HCS | xr.DataArray) -> xr.DataArray:
         """Determine position of other_hcs in self HCS in base magnitude."""
         if isinstance(other_hcs, HCS):
             oc = other_hcs._global_position.basemag
         else:
             oc = other_hcs
 
-        # Relative position
+        # Relative position in global coordinates
         r_pos = oc - self._global_position.basemag
-        # Note: Need to reverse the order of the rotations
-        rots = self.rotation_tree[::-1]
-        # Create rotation product
-        rot_prod = rots[0]
-        for rot in rots[1:]:
-            rot_prod *= rot
-        # Apply rotation to the relative position
-        pos = rot_prod.apply(r_pos)
 
+        # Each rotation in rotation_tree is parent to local frame transform
+        # Composing left-to-right gives you global to self frame transform
+        rot = reduce(mul, self.rotation_tree)
+        # Position in global to self is the inverse of the rotation
+        pos = rot.apply(r_pos, inverse=True)
         return pos
 
     def relative_position(self, other_hcs: HCS | xr.DataArray):
@@ -600,9 +616,13 @@ class HCS:
 
         return pos
 
-    def get_relative_rotation(self, request_cs: HCS) -> xr.DataArray | Rotation:
+    def get_relative_rotation(self, request_cs: HCS) -> HCSRotation:
         """
         Get the rotations from request_cs back to the global and then from global back to self.
+
+        To transform a point defined in request_cs into self's frame, apply the inverse of this rotation:
+            r = self.get_relative_rotation(request_cs)
+            v_in_self = r.apply(v_in_request, inverse=True)
 
         Parameters
         ----------
@@ -610,23 +630,15 @@ class HCS:
             Requested coordinate system
         """
         if request_cs == self:
-            return Rotation.identity()
-
-        # Get rotations from request_cs to global (reverse and invert)
-        req_to_global = [r.inverse() for r in request_cs.rotation_tree[::-1]]
+            return HCSRotation(Rotation.identity())
 
         # Get rotations from global to self
-        global_to_self = self.rotation_tree
+        rot_g2s = reduce(mul, self.rotation_tree)
 
-        # Compose all rotations
-        rot_chain = req_to_global + global_to_self
-        # Reverse chain order
-        rot_chain = rot_chain[::-1]
-        composed = rot_chain[0]
-        for r in rot_chain[1:]:
-            composed = composed * r
+        # Get rotations from request_cs to global, inverting each step
+        rot_r2g = reduce(mul, [r.inverse() for r in request_cs.rotation_tree[::-1]])
 
-        return composed
+        return rot_r2g * rot_g2s
 
     def find_common_cs(self, other_hcs: HCS) -> HCS:
         """

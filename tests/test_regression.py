@@ -19,7 +19,8 @@ def test_compound_simple_format_regression():
     cs0 = HCS(
         [(0, 0, i) * ureg.meter for i in np.linspace(0, 10, 10000)],
         rotation=[
-            Rotation.from_euler("ZYZ", [d, d, 0], degrees=True) for d in np.linspace(0, 360, 10000)
+            Rotation.from_euler("ZYZ", [d, d, 0], degrees=True).inv()
+            for d in np.linspace(0, 360, 10000)
         ],
     )
     cs1 = HCS(
@@ -38,13 +39,16 @@ def test_compound_xr_regression():
     pos = xr.DataArray(
         pos, dims=("time", "position"), coords=dict(time=ts, position=["x", "y", "z"])
     )
-    rots = [Rotation.from_euler("ZYZ", [d, d, 0], degrees=True) for d in np.linspace(0, 360, 10000)]
+    rots = [
+        Rotation.from_euler("ZYZ", [d, d, 0], degrees=True).inv()
+        for d in np.linspace(0, 360, 10000)
+    ]
     rots = xr.DataArray(rots, dims=("time",), coords=dict(time=ts))
 
     cs0 = HCS(pos, rots)
     cs1 = HCS(
         (2, 0, 0) * ureg.meter,
-        rotation=Rotation.from_euler("ZYZ", [0, 40, 35], degrees=True),
+        rotation=Rotation.from_euler("ZYZ", [0, 40, 35], degrees=True).inv(),
         reference=cs0,
     )
 

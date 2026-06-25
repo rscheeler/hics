@@ -48,7 +48,7 @@ def test_compound_rotation_global_position():
 
     np.testing.assert_array_almost_equal(
         local_ant.global_position.data.magnitude,
-        np.array([-5.0, 10.0, 10.0]),
+        np.array([5.0, 10.0, 10.0]),
     )
 
 
@@ -68,7 +68,7 @@ def test_compound_rotation_mixed_global_position():
 
     np.testing.assert_array_almost_equal(
         local_ant.global_position.data.magnitude,
-        np.array([-5.0, 10.0, 10.0]),
+        np.array([5.0, 10.0, 10.0]),
     )
 
 
@@ -89,7 +89,7 @@ def test_compound_rotation_relative_position():
 
     np.testing.assert_array_almost_equal(
         local_ant.relative_position(tower).data.magnitude,
-        np.array([6.0, 0, -5.0]),
+        np.array([-6.0, 0, -5.0]),
     )
 
 
@@ -177,7 +177,7 @@ def test_relative_rotation():
     roof = HCS((0, 0, 5) * ureg.meter)
     rot0 = Rotation.from_euler("ZYZ", (0, 90, 0), degrees=True)
     tower = HCS((0, 4, 5) * ureg.meter, rotation=rot0, reference=roof)
-    rot1 = Rotation.from_euler("ZYZ", (90, 0, 0), degrees=True)
+    rot1 = Rotation.from_euler("ZYZ", (0, 0, 90), degrees=True)
     local_ant = HCS((0, 6, 5) * ureg.meter, rotation=rot1, reference=tower)
 
     xr.testing.assert_equal(

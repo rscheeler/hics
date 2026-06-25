@@ -37,5 +37,5 @@ def test_save_read():
 
     np.testing.assert_array_almost_equal(
         local_ant.relative_position(tower).data.magnitude,
-        np.array([6.0, 0, -5.0]),
+        np.array([-6.0, 0, -5.0]),
     )

@@ -1,5 +1,5 @@
 # 🗺️ hics: Hierarchical Coordinate Systems
-```hics``` is a Python package for handling hierarchical coordinate systems (HCS). It allows you to define relative transformations (translation and rotation) between frames and automatically resolves them to global positions (ECEF) or relative positions between any two frames in the tree.
+```hics``` is a Python package for handling hierarchical coordinate systems (HCS). It allows you to define relative (passive) transformations (translation and rotation) between frames and automatically resolves them to global positions (ECEF) or relative positions between any two frames in the tree.
 
 ## Core Concepts
 ### 1. Defining a Coordinate System
@@ -19,6 +19,28 @@ antenna = HCS((0, 0, 2) * ureg.meter, reference=roof)
 print(antenna.global_position)
 ```
 ### 2. Rotations and Compound Transformations
+
+Note on trasforms: the rotations are "passive" as they define the rotation of the coordinate frame basis.
+```python
+from scipy.spatial.transform import Rotation
+
+# Define a rotated coordinate system that is rotated 90 degrees in z so the local coordinates x-axis now points in global y-axis
+rotz90 = Rotation.from_euler("Z", 90, degrees=True)
+# returns [0,1,0] Coordinate frame transform: Moves x-axis to y-axis describes local x in global coordinates
+print(rotz90.apply([1, 0, 0]))
+# returns [0,-1,0] Vector transform - describes global x-axis in local coordinates
+print(rotz90.apply([1, 0, 0], inverse=True))
+# Chained, now a y-axis rotation is added, when chained z-axis now points in global y
+# Chains are not commutative so order matters
+# Chain is built from global to self (left to right)
+roty90 = Rotation.from_euler("Y", 90, degrees=True)
+rot = rotz90 * roty90
+# returns [0,1,0] Coordinate frame transform: Moves z-axis to y-axis
+print(rot.apply([0, 0, 1]))
+# returns [-1,0,0] Vector transform - describes global z-axis in frame coordinates
+print(rot.apply([0, 0, 1], inverse=True))
+```
+
 ```hics``` integrates with ```scipy.spatial.transform.Rotation```. Transformations are chained automatically down the hierarchy.
 
 ```python
@@ -57,7 +79,7 @@ You can initialize a coordinate system directly from geographic coordinates. If 
 # Initialize an HCS at a specific location in Boulder, CO
 # 20 meters above the ground (HAGL)
 cs_boulder = HCS.from_crs(
-    (40.015 * ureg.degree, -105.270556 * ureg.degree, 20 * ureg.m), 
+    (40.015 * ureg.degree, -105.270556 * ureg.degree, 20 * ureg.m),
     hagl=True
 )
 
@@ -75,9 +97,9 @@ center = (40.037578, -105.228117) * ureg.degree
 racetrack_pnts = racetrack_latlon(center[0], center[1], length=8.48*ureg.km, width=1.5*ureg.km)
 
 racetrack = interp_llpnts2hcs(
-    racetrack_pnts, 
-    altitude=10*ureg.km, 
-    speed=100*ureg.m/ureg.s, 
+    racetrack_pnts,
+    altitude=10*ureg.km,
+    speed=100*ureg.m/ureg.s,
     bank_turns=True
 )
 ```
@@ -88,15 +110,16 @@ If ```hagl=True``` is specified, hics uses the underlying DEM data to "pin" the 
 ```python
 # A car driving 2 meters above the ground following a path
 drivecs = interp_llpnts2hcs(
-    ll_path_points, 
-    hagl=2*ureg.m, 
-    speed=30*ureg.mph, 
+    ll_path_points,
+    hagl=2*ureg.m,
+    speed=30*ureg.mph,
     hagl=True
 )
 ```
 
 ## Advanced Usage: Xarray and Lazy Loading
 ```hics``` leverages ```xarray``` and ```dask``` for performance.
+
 
 * Lazy Merging: Large terrain datasets are merged lazily via VRT (Virtual Raster) files to save memory.
 * Time-Series Support: Coordinate systems can be defined over time-indexed DataArrays, allowing for easy interpolation of moving objects.
