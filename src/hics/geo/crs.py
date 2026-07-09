@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Optional, Type
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import xarray as xr
 from loguru import logger
 from scipy.spatial.transform import Rotation
 from xrench.units import ureg
-from xrench.xrutils import vector_norm
+from xrench.xrutils import vector_norm, wraps_xr
 
 from ..datatypes import _QUATERNION_COORD_DICT, _QUATERNION_COORDS, _QUATERNION_DIM
 from .dem import XRCRSTransformer_Terrain, hagl2amsl
 
+_whagl2amsl = wraps_xr(ureg.m, (ureg.radian, ureg.radian, ureg.m))(hagl2amsl)
 if TYPE_CHECKING:
     from pint import Quantity
 
@@ -54,12 +55,12 @@ def from_crs(
 
     # Get HAGL to AMSL to ensure unit vectors correctly oriented
     if epsg == "EPSG:4979" and hagl:
-        hamsl = hagl2amsl(
-            coords[0].to("radian").magnitude,
-            coords[1].to("radian").magnitude,
-            coords[2].to("m").magnitude,
+        hamsl = _whagl2amsl(
+            coords[0],
+            coords[1],
+            coords[2],
         )
-        coords[-1] = hamsl * ureg.m
+        coords[-1] = hamsl
         hagl = False
     # Select item if DataArray and no shape
     for i, l in enumerate(coords):
@@ -111,7 +112,7 @@ def from_crs(
     rc = dict(un.coords)
     rc.pop("position")
 
-    # Create rotaiton objects
+    # Create rotation objects
     uxshape = ux.shape
     ux = ux.values.reshape(3, -1)
     uy = uy.values.reshape(3, -1)
@@ -119,7 +120,9 @@ def from_crs(
 
     matrices = np.stack([ux, uy, un], axis=-1).transpose(1, 2, 0)  # shape: (N, 3, 3)
 
-    rots = Rotation.from_matrix(matrices)
+    # Create rotation matrix and be sure to invert
+    rots = Rotation.from_matrix(matrices).inv()
+
     rots = xr.DataArray(
         rots.as_quat().reshape(list(uxshape[1:]) + [len(_QUATERNION_COORDS)]),
         dims=rd + [_QUATERNION_DIM],
