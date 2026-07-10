@@ -39,10 +39,12 @@ def view_surface_profile(
     ax: plt.Axes | None = None,
     lc: bool = True,
     lc_skip_ind: int | None = None,
+    surf_r: float = 1 / 157e-9,
+    k_factor: float = 1,
     **kwargs,
 ):
     """
-    View the surface profile between tx_cs (TX) and rx_cs (RX).
+    View the surface profile between tx_cs (TX) and rx_cs (RX) including curvature.
 
     Parameters
     ----------
@@ -60,6 +62,10 @@ def view_surface_profile(
         Whether to plot land cover profile.
     lc_skip_ind : int | None
         Index of the land cover class to skip in the interpolation.
+    surf_r : float
+        Surface (earth) radius
+    k_factor : float
+        Effective radius factor
 
     **kwargs
     --------
@@ -68,23 +74,43 @@ def view_surface_profile(
     # Get the surface profile
     surface_profile = get_surface_profile(tx_cs, rx_cs, lc_skip_ind=lc_skip_ind, **kwargs)
 
-    # Plot the surface line
-    surface_profile.surface_profile.plot(color="k", label="Surface", ax=ax)
-    if lc:
-        surface_profile.lc_profile.plot(color="k", lw=1, ls=":", label="Land Cover", ax=ax)
+    # Surface Curvature Modification
+    effective_radius = surf_r * k_factor
+
+    # Calculate drop relative to the TX position (distance = 0)
+    # Ensure distance data is extracted cleanly (handling pint quantities if necessary)
+    try:
+        distances = surface_profile.distance.data.to("m").magnitude
+    except AttributeError:
+        distances = surface_profile.distance.data
+
+    curvature_drop = (distances**2) / (2 * effective_radius)
+
+    # Apply curvature drop to surface and land cover arrays
+    curved_surface = surface_profile.surface_profile.data - curvature_drop
+    curved_lc = surface_profile.lc_profile.data - curvature_drop if lc else None
+
+    # Apply curvature drop to specific discrete tx and rx heights
+    curved_txamsl = surface_profile.txamsl - 0.0  # distance is 0 at tx
+    curved_rxamsl = surface_profile.rxamsl - ((distances[-1] ** 2) / (2 * effective_radius))
+
     if ax is None:
         ax = plt.gca()
+
+    # Plot the surface line using curved data
+    ax.plot(surface_profile.distance, curved_surface, color="k", label="Surface")
+
+    if lc:
+        ax.plot(surface_profile.distance, curved_lc, color="k", lw=1, ls=":", label="Land Cover")
 
     # Fill below to fill_delta of the delta in altitudes
     below_fill = xr.full_like(
         surface_profile.distance,
-        surface_profile.surface_profile.min()
-        - (surface_profile.surface_profile.max() - surface_profile.surface_profile.min())
-        * fill_delta,
+        curved_surface.min() - (curved_surface.max() - curved_surface.min()) * fill_delta,
     )
     ax.fill_between(
         surface_profile.distance,
-        surface_profile.surface_profile.data,
+        curved_surface,
         below_fill,
         color="k",
         alpha=0.3,
@@ -96,17 +122,17 @@ def view_surface_profile(
         for i, c in zip(range(surface_profile.distance.size - 1), colors, strict=False):
             ax.fill_between(
                 surface_profile.distance[i : i + 2],
-                surface_profile.lc_profile.data[i : i + 2],
-                surface_profile.surface_profile.data[i : i + 2],
+                curved_lc[i : i + 2],
+                curved_surface[i : i + 2],
                 step="mid",
                 color=c,
                 alpha=0.3,
             )
 
-    # Plot markers
+    # Plot markers using curved antenna locations
     ax.plot(
         surface_profile.distance[0],
-        surface_profile.txamsl,
+        curved_txamsl,
         "o",
         mec="C0",
         mfc="w",
@@ -115,18 +141,20 @@ def view_surface_profile(
     )
     ax.plot(
         surface_profile.distance[-1],
-        surface_profile.rxamsl,
+        curved_rxamsl,
         "o",
         mec="C0",
         mfc="w",
         markersize=12,
         label="RX",
     )
-    ax.plot(surface_profile.distance[0], surface_profile.txamsl, ".", mec="C0", mfc="C0")
-    ax.plot(surface_profile.distance[-1], surface_profile.rxamsl, ".", mec="C0", mfc="C0")
-    # Set plot aspect
-    aspect = ((surface_profile.distance.max() * ureg.m) / surface_profile.lc_profile.max()) / aspect
-    ax.set_aspect(aspect)
+    ax.plot(surface_profile.distance[0], curved_txamsl, ".", mec="C0", mfc="C0")
+    ax.plot(surface_profile.distance[-1], curved_rxamsl, ".", mec="C0", mfc="C0")
+
+    # Set plot aspect based on curved max height limits
+    max_height = curved_lc.max() if lc else curved_surface.max()
+    aspect_ratio = ((surface_profile.distance.max() * ureg.m) / max_height) / aspect
+    ax.set_aspect(aspect_ratio)
 
     return ax
 
