@@ -151,10 +151,8 @@ def view_surface_profile(
     ax.plot(surface_profile.distance[0], curved_txamsl, ".", mec="C0", mfc="C0")
     ax.plot(surface_profile.distance[-1], curved_rxamsl, ".", mec="C0", mfc="C0")
 
-    # Set plot aspect based on curved max height limits
-    max_height = curved_lc.max() if lc else curved_surface.max()
-    aspect_ratio = ((surface_profile.distance.max() * ureg.m) / max_height) / aspect
-    ax.set_aspect(aspect_ratio)
+    # Set aspect
+    ax.set_aspect(aspect)
 
     return ax
 
