@@ -418,6 +418,7 @@ def satellite_to_cs(
     for ti in times:
         # Get ECEF position and velocity using the ITRS frame.
         geocentric = satellite.at(ti)
+        logger.debug(f"Geocent {geocentric}")
         satellite_ecef, satellite_velocity_ecef = geocentric.frame_xyz_and_velocity(itrs)
 
         # Calculate position and velocity vectors.
@@ -448,7 +449,7 @@ def satellite_to_cs(
 
         # Create the rotation matrix.
         rotation_matrix = np.array((x_axis, y_axis, z_axis))
-        rotation = Rotation.from_matrix(rotation_matrix)
+        rotation = Rotation.from_matrix(rotation_matrix).inv()
 
         # Append position and rotation data.
         pos.append(position_vector)
