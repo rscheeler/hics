@@ -148,6 +148,14 @@ class HCSOrigin:
     def __setstate__(self, state):
         vars(self).update(state)
 
+    def __deepcopy__(self, memo) -> HCSOrigin:
+        cls = self.__class__
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            new.__dict__[k] = deepcopy(v, memo)
+        return new
+
 
 class HCSRotation:
     """
@@ -330,6 +338,14 @@ class HCSRotation:
 
     def __setstate__(self, state):
         vars(self).update(state)
+
+    def __deepcopy__(self, memo) -> HCSRotation:
+        cls = self.__class__
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            new.__dict__[k] = deepcopy(v, memo)
+        return new
 
 
 class HCS:

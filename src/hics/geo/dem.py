@@ -36,74 +36,114 @@ if TYPE_CHECKING:
 def _generate_vrt(
     vrt_path: Path,
     file_paths: list[Path],
-) -> None:
-    """
-    Creates a reprojected VRT by first building a mosaic and then warping it.
-    This ensures all tiles are included and the projection is correct.
-    """
-    if not file_paths:
-        raise ValueError("Cannot build VRT with an empty list of files.")
-
-    input_files = [str(p) for p in file_paths]
-    from osgeo import gdal
-
-    try:
-        # Create a standard mosaic VRT on disk.
-        # This writes the actual file paths into the XML.
-        ds = gdal.BuildVRT(str(vrt_path), input_files)
-
-        if ds is None:
-            raise RuntimeError("GDAL Warp failed.")
-
-        # Clean up: Close the dataset to flush to disk
-        ds = None
-        logger.debug(f"VRT created: {vrt_path}")
-
-    except Exception as e:
-        logger.error(f"VRT generation failed: {e}")
-        raise
-
-
-def _generate_warpedvrt(
-    vrt_path: Path,
-    file_paths: list[Path],
-    dst_crs: str,
+    dst_crs: str | None = None,
     resampling: str = "near",
+    virtual_warp: bool = False,
+    bbox: BoundingBox | None = None,
+    pad: float = 0.01,
 ) -> None:
-    """
-    Creates a reprojected VRT by first building a mosaic and then warping it.
-    This ensures all tiles are included and the projection is correct.
-    """
     if not file_paths:
         raise ValueError("Cannot build VRT with an empty list of files.")
 
-    input_files = [str(p) for p in file_paths]
-    from osgeo import gdal
+    from osgeo import gdal, osr
 
-    try:
-        # Warp the mosaic VRT to create the final reprojected VRT.
-        # This will now reference temp_mosaic_vrt by path, not memory handle.
-        options = gdal.WarpOptions(
-            format="VRT",
-            dstSRS=dst_crs,
-            resampleAlg=resampling,
-            outputBounds=None,
-            multithread=True,
-            errorThreshold=0,  # Disable coordinate approximation
-        )
-
-        ds = gdal.Warp(str(vrt_path), input_files, options=options)
-
-        if ds is None:
-            raise RuntimeError("GDAL Warp failed.")
-
-        # 3. Clean up: Close the dataset to flush to disk
+    logger.debug(f"If required warp will be virtual: {virtual_warp}")
+    # Check whether all inputs already share a common CRS.
+    srs_set = set()
+    for p in file_paths:
+        ds = gdal.Open(str(p))
+        srs_set.add(ds.GetProjection())
         ds = None
-        logger.debug(f"VRT created: {vrt_path}")
 
-    except Exception as e:
-        logger.error(f"Warped VRT generation failed: {e}")
-        raise
+    if len(srs_set) <= 1:
+        # Fast path: all tiles share a CRS, straight mosaic is safe.
+        input_files = [str(p) for p in file_paths]
+        ds = gdal.BuildVRT(str(vrt_path), input_files)
+        if ds is None:
+            raise RuntimeError("GDAL BuildVRT failed.")
+        ds = None
+        logger.debug(f"VRT created (no reprojection needed): {vrt_path}")
+        return
+
+    # Slow path: tiles disagree on CRS (e.g. straddling a UTM zone
+    # boundary). Instruct GDAL to handle the reprojection dynamically
+    # on-the-fly inside virtual memory, restricting the warping calculation
+    # exclusively to the chunks you are reading.
+    logger.debug(f"Mixed CRS across {len(file_paths)} tiles, warping mismatched tiles")
+    target_crs = gdal.Open(str(file_paths[0])).GetProjection()
+    if dst_crs:
+        srs = osr.SpatialReference()
+        srs.SetFromUserInput(dst_crs)
+        target_crs = srs.ExportToWkt()
+
+    resampling_map = {
+        "near": gdal.GRA_NearestNeighbour,
+        "nearest": gdal.GRA_NearestNeighbour,
+        "bilinear": gdal.GRA_Bilinear,
+        "cubic": gdal.GRA_Cubic,
+        "cubicspline": gdal.GRA_CubicSpline,
+        "lanczos": gdal.GRA_Lanczos,
+    }
+    gdal_resampling = resampling_map.get(resampling.lower(), gdal.GRA_NearestNeighbour)
+    if virtual_warp:
+        logger.debug("Virtual warp")
+        aligned_datasets = []  # Keep a list of open datasets instead of strings
+        for p in file_paths:
+            ds = gdal.Open(str(p))
+            dsproj = ds.GetProjection()
+            logger.debug(f"{p.name}: {dsproj}")
+            if dsproj == target_crs:
+                logger.debug(f"CRS match {dsproj}=={target_crs}")
+                aligned_datasets.append(ds)  # Keep it open
+                continue
+            logger.debug(f"CRS mismatch, warping to {target_crs}")
+            # Create the virtual warped view
+            vrt_ds = gdal.AutoCreateWarpedVRT(ds, None, target_crs, gdal_resampling)
+            aligned_datasets.append(vrt_ds)
+            # Note: Do NOT set ds = None here yet, or it will close the underlying vrt_ds dependency
+            # Pass the dataset objects directly into BuildVRT
+        ds = gdal.BuildVRT(str(vrt_path), aligned_datasets)
+    else:
+        logger.debug("Warping")
+        warp_cache_dir = vrt_path.parent / ".warped"
+        warp_cache_dir.mkdir(exist_ok=True)
+
+        warped_paths = []
+        for p in file_paths:
+            ds = gdal.Open(str(p))
+            if ds.GetProjection() == target_crs:
+                warped_paths.append(str(p))
+                continue
+            out_path = warp_cache_dir / f"{p.stem}_warped.tif"
+            if not out_path.exists():
+                gdal.Warp(
+                    str(out_path),
+                    ds,
+                    dstSRS=target_crs,
+                    resampleAlg=gdal_resampling,
+                    outputBounds=(
+                        bbox.min_lon - pad,
+                        bbox.min_lat - pad,
+                        bbox.max_lon + pad,
+                        bbox.max_lat + pad,
+                    ),
+                    outputBoundsSRS=dst_crs,
+                )
+            warped_paths.append(str(out_path))
+
+        ds = gdal.BuildVRT(str(vrt_path), warped_paths)
+
+    if ds is None:
+        raise RuntimeError("GDAL BuildVRT failed after warping mismatched tiles.")
+
+    # Clean up and close all handles explicitly now that the file is built
+    ds = None
+    aligned_datasets = None
+    if virtual_warp:
+        msg = f"VRT created (with lazy virtual warp): {vrt_path}"
+    else:
+        msg = f"VRT created (with cached per-tile warp): {vrt_path}"
+    logger.debug(msg)
 
 
 def load_geotiffs(
@@ -112,6 +152,7 @@ def load_geotiffs(
     dst_crs: str,
     bbox: BoundingBox,
     resampling: Resampling = Resampling.nearest,
+    virtual_warp: bool = False,
 ) -> xr.DataArray:
     """
     Create VRT and load, reproject to dst_crs, and clip if needed
@@ -152,9 +193,14 @@ def load_geotiffs(
         # Multiple tiles: build a VRT for lazy merging
         # Use same vrt file for everything and just overwrite
         # Generate VRT
-        _generate_vrt(vrt_file, geotiffs)
-
-        # Open the VRT file for lazy reading
+        _generate_vrt(
+            vrt_file,
+            geotiffs,
+            dst_crs=dst_crs,
+            resampling=resampling.name,
+            virtual_warp=virtual_warp,
+            bbox=bbox,
+        )
         data = open_rasterio(vrt_file, masked=True, chunks=chunks_dict)
     except ImportError:
         from rioxarray.merge import merge_arrays
@@ -194,8 +240,8 @@ def load_geotiffs(
         data = data.rio.clip_box(
             minx=bbox.min_lon - _PAD,
             miny=bbox.min_lat - _PAD,
-            maxx=bbox.min_lon + _PAD,
-            maxy=bbox.min_lat + _PAD,
+            maxx=bbox.max_lon + _PAD,
+            maxy=bbox.max_lat + _PAD,
             crs=dst_crs,
         )
         # Rename dimensions
@@ -216,6 +262,30 @@ def load_geotiffs(
     return data
 
 
+def _extract_bbox(lat: xr.DataArray, lon: xr.DataArray) -> list[tuple[float, float]]:
+    """Extracts the extreme outer corners of lat/lon DataArrays."""
+    # Extract raw numpy arrays
+    lapts = lat.data
+    lopts = lon.data
+
+    # Strip xrench/pint units if present
+    if hasattr(lapts, "magnitude"):
+        lapts = lapts.to("radian").magnitude
+    if hasattr(lopts, "magnitude"):
+        lopts = lopts.to("radian").magnitude
+
+    # Convert radians to degrees instantly via C-speed vector operations
+    lat_deg = np.rad2deg(lapts)
+    lon_deg = np.rad2deg(lopts)
+
+    # Get the absolute outer boundaries of the current request slice
+    min_lat, max_lat = float(lat_deg.min()), float(lat_deg.max())
+    min_lon, max_lon = float(lon_deg.min()), float(lon_deg.max())
+
+    # Return the two anchor points that define the entire spatial envelope
+    return [(min_lat, min_lon), (max_lat, max_lon)]
+
+
 class _Terrain:
     """Container class for terrain data.
     Contains both digital elevation model (DEM) and land cover data.
@@ -226,6 +296,7 @@ class _Terrain:
         dem_asset: GeoAsset = DEM_CATALOG.USGS30,
         lc_asset: GeoAsset = DEM_CATALOG.LULCv02,
         local_only: bool = False,
+        virtual_warp: bool = False,
     ) -> None:
         # Initialize internal data caches to None for lazy loading
         self._dem = None
@@ -235,6 +306,7 @@ class _Terrain:
         self.local_only = local_only
         self.dem_asset = dem_asset
         self.lc_asset = lc_asset
+        self.virtual_warp = virtual_warp
         # Lazy-loaded legend attributes
         self._nlcd_leg = None
         self._lookup_tables = {}
@@ -397,7 +469,9 @@ class _Terrain:
         # Load geotiff data
         if geotiffs is not None:
             logger.debug(f"Loading {vrt_suffix} geotiffs: {geotiffs}")
-            data = load_geotiffs(geotiffs, vrt_suffix, "EPSG:4326", bbox)
+            data = load_geotiffs(
+                geotiffs, vrt_suffix, "EPSG:4326", bbox, virtual_warp=self.virtual_warp
+            )
         else:
             data = None
         return data
@@ -428,26 +502,14 @@ class _Terrain:
 
         # Use bounds_error kwarg on scipy.interp to raise an error if extrapolating
         try:
+            logger.debug("Trying to interp dem...")
             interp_dat = self.dem.interp(
                 lat=lats, lon=lons, **kwargs, kwargs=dict(bounds_error=True)
             ).compute()
         except ValueError:
+            logger.debug("Fail to interp loading dem data...")
             # Catch the error and load in data based off of points
-            # Create lat,lon point list
-            if isinstance(lats.data, ureg.Quantity):
-                lapts = lats.data.to("radian").magnitude.copy()
-            else:
-                lapts = lats.data.copy()
-            if isinstance(lons.data, ureg.Quantity):
-                lopts = lons.data.to("radian").magnitude.copy()
-            else:
-                lopts = lons.data.copy()
-            points = [
-                (la.item(), lo.item())
-                for la, lo in zip(
-                    np.rad2deg(lapts.ravel()), np.rad2deg(lopts.ravel()), strict=False
-                )
-            ]
+            points = _extract_bbox(lats, lons)
 
             # Load geotiff
             self.load_dem(points)
@@ -476,6 +538,7 @@ class _Terrain:
 
         # Use bounds_error kwarg on scipy.interp to raise an error if extrapolating
         try:
+            logger.debug("Trying to interp lc...")
             interp_dat = self.nlcd.interp(
                 lat=lats,
                 lon=lons,
@@ -485,22 +548,9 @@ class _Terrain:
             ).compute()
 
         except ValueError:
+            logger.debug("Fail to interp loading lc data...")
             # Catch the error and load in data based off of points
-            # Create lat,lon point list
-            if isinstance(lats.data, ureg.Quantity):
-                lapts = lats.data.to("radian").magnitude.copy()
-            else:
-                lapts = lats.data.copy()
-            if isinstance(lons.data, ureg.Quantity):
-                lopts = lons.data.to("radian").magnitude.copy()
-            else:
-                lopts = lons.data.copy()
-            points = [
-                (la.item(), lo.item())
-                for la, lo in zip(
-                    np.rad2deg(lapts.ravel()), np.rad2deg(lopts.ravel()), strict=False
-                )
-            ]
+            points = _extract_bbox(lats, lons)
 
             # Load NLCD
             self.load_lc(points)

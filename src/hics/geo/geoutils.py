@@ -214,12 +214,14 @@ def surface_profile_xr(line: list, alts: list, lc_skip_ind: int | None = None) -
         lc_profile = lc_profiles[-1]
         lc_nlcd = lc_nlcds[-1]
 
-    return xr.Dataset(
-        dict(
-            surface_profile=surface_profile,
-            lc_profile=lc_profile,
-            lc_nlcd=lc_nlcd,
-        )
+    return xr.merge(
+        [
+            surface_profile.rename("surface_profile"),
+            lc_profile.rename("lc_profile"),
+            lc_nlcd.rename("lc_nlcd"),
+        ],
+        compat="override",
+        join="exact",
     )
 
 
