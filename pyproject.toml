@@ -46,7 +46,8 @@ geo = [
     "pyproj>=3.7.2",
     "rioxarray>=0.19.0",
     "aiofiles>=25.1.0",
-    "gdal>=3.11.4",
+    # GDAL Python bindings must match the native libgdal installed for the environment.
+    # Install GDAL via conda-forge or install matching bindings after system GDAL is present.
     "nest_asyncio",
     "odc-geo",
     "skyfield",
@@ -81,21 +82,6 @@ build-backend = "uv_build"
 source-exclude = [".mypy_cache"]
 wheel-exclude = [".mypy_cache"]
 
-[tool.uv.sources]
-gdal = [
-  { index = "gdal-wheels", marker = "sys_platform == 'linux'" },
-  { index = "geospatial_wheels", marker = "sys_platform == 'win32'" },
-]
-
-[[tool.uv.index]]
-name = "geospatial_wheels"
-url = "https://nathanjmcdougall.github.io/geospatial-wheels-index/"
-explicit = true
-
-[[tool.uv.index]]
-name = "gdal-wheels"
-url = "https://gitlab.com/api/v4/projects/61637378/packages/pypi/simple"
-explicit = true
 
 [tool.taskipy.tasks]
 format = { cmd = "ruff format ./src/", help = "Format code using ruff" }
