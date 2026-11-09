@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 import nest_asyncio
 import numpy as np
@@ -18,7 +18,6 @@ from odc.geo.geobox import GeoBox
 from odc.geo.xr import xr_reproject
 from rasterio.enums import Resampling
 from rioxarray import open_rasterio
-from xrench.units import ureg
 from xrench.xrutils import kw2da
 
 from .config import DEM_SETTINGS

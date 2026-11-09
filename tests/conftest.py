@@ -1,9 +1,12 @@
 # tests/conftest.py
+import matplotlib
 import pytest
 
 from hics.geo.config import DEM_SETTINGS
 from hics.geo.dem import DEM
 from hics.geo.downloader import GEOTIFF_INDEX
+
+matplotlib.use("Agg")
 
 
 @pytest.fixture(autouse=True, scope="module")
